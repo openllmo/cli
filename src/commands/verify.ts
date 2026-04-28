@@ -1,0 +1,308 @@
+import { Command } from 'commander';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import type { JWK } from 'jose';
+import { schema as schemaJson, validate, formatErrors } from '../lib/schema.js';
+import { verify as verifyJws, type DocumentSignature } from '../lib/jws.js';
+import { evaluateTier, type Tier, type TierFailure } from '../lib/tier.js';
+import { fetchJwks, parseJwksFromText, findKeyByKid, type Jwks } from '../lib/jwks.js';
+import { LlmoError, type SchemaIssue } from '../lib/errors.js';
+
+interface VerifyOpts {
+  jwks?: string;
+  requireTier?: string;
+  ignoreExpiry?: boolean;
+  json?: boolean;
+  now?: string;
+}
+
+export interface VerifyJsonResult {
+  tier: Tier;
+  satisfied: ReadonlyArray<Tier>;
+  signatureValid: boolean | null;
+  expired: boolean;
+  schemaErrors: SchemaIssue[];
+  tierFailures: TierFailure[];
+  jwksResolved: boolean;
+  kidMatched: boolean;
+  corsHeaderPresent?: boolean;
+}
+
+export interface VerifyOutcome {
+  exitCode: number;
+  result: VerifyJsonResult;
+  notes: string[];
+}
+
+const PRIMARY_DOMAIN_PATTERN = extractPrimaryDomainPattern();
+
+export function verifyCommand(): Command {
+  return new Command('verify')
+    .description('Verify an llmo.json document and report its conformance tier')
+    .argument('<target>', 'URL, bare domain (auto-resolves to https://<domain>/.well-known/llmo.json), or local file path')
+    .option('--jwks <url-or-path>', 'override JWKS resolution: URL or local file path')
+    .option('--require-tier <tier>', 'fail if tier requirement not met: minimal | standard | strict')
+    .option('--ignore-expiry', 'suppress expiry flag in human output (JSON output always reports it)')
+    .option('--json', 'emit structured JSON output instead of human-readable text')
+    .option('--now <iso8601>', 'override current time as RFC 3339 / ISO 8601 timestamp')
+    .action(async (target: string, opts: VerifyOpts) => {
+      const outcome = await runVerify(target, opts);
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(outcome.result, null, 2) + '\n');
+      } else {
+        printHuman(outcome, opts);
+      }
+      process.exit(outcome.exitCode);
+    });
+}
+
+export async function runVerify(target: string, opts: VerifyOpts): Promise<VerifyOutcome> {
+  const now = opts.now ? new Date(opts.now) : new Date();
+  if (isNaN(now.getTime())) {
+    return failHard(1, `--now is not a valid ISO 8601 timestamp: ${opts.now}`);
+  }
+  if (opts.requireTier && !['minimal', 'standard', 'strict'].includes(opts.requireTier)) {
+    return failHard(1, `--require-tier must be one of: minimal, standard, strict (got '${opts.requireTier}')`);
+  }
+
+  // Resolve target.
+  let docText: string;
+  let servingDomain: string | undefined;
+  let corsHeaderPresent: boolean | undefined;
+  try {
+    if (target.startsWith('https://') || target.startsWith('http://')) {
+      const url = new URL(target);
+      const fetched = await fetchDoc(url.toString());
+      docText = fetched.body;
+      servingDomain = url.hostname;
+      corsHeaderPresent = fetched.corsAllowAll;
+    } else if (PRIMARY_DOMAIN_PATTERN.test(target) && !existsSync(target)) {
+      const url = `https://${target}/.well-known/llmo.json`;
+      const fetched = await fetchDoc(url);
+      docText = fetched.body;
+      servingDomain = target;
+      corsHeaderPresent = fetched.corsAllowAll;
+    } else {
+      docText = readFileSync(resolve(target), 'utf8');
+    }
+  } catch (e) {
+    return failHard(2, `infrastructure failure: ${(e as Error).message}`);
+  }
+
+  // Parse.
+  let doc: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(docText);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return failHard(1, 'document is not a JSON object');
+    }
+    doc = parsed;
+  } catch (e) {
+    return failHard(1, `target is not valid JSON: ${(e as Error).message}`);
+  }
+
+  // Schema validation.
+  const schemaOk = validate(doc);
+  const schemaErrors = schemaOk ? [] : formatErrors(validate.errors);
+
+  // Signature verification (if present).
+  let signatureValid: boolean | null = null;
+  let jwksResolved = false;
+  let kidMatched = false;
+  let jwksMaxAge: number | undefined;
+  let signatureError: string | undefined;
+
+  if (typeof doc.signature === 'object' && doc.signature !== null) {
+    const sig = doc.signature as DocumentSignature;
+    let jwks: Jwks | null = null;
+    try {
+      if (opts.jwks) {
+        if (opts.jwks.startsWith('http://') || opts.jwks.startsWith('https://')) {
+          const fetched = await fetchJwks(opts.jwks);
+          jwks = fetched.jwks;
+          jwksMaxAge = fetched.cacheControlMaxAgeSeconds;
+        } else {
+          jwks = parseJwksFromText(readFileSync(resolve(opts.jwks), 'utf8'));
+        }
+      } else if (servingDomain) {
+        const fetched = await fetchJwks(`https://${servingDomain}/.well-known/llmo-keys.json`);
+        jwks = fetched.jwks;
+        jwksMaxAge = fetched.cacheControlMaxAgeSeconds;
+      }
+    } catch (e) {
+      signatureError = `JWKS fetch failed: ${(e as Error).message}`;
+    }
+
+    if (jwks) {
+      jwksResolved = true;
+      let kid: string | undefined;
+      try {
+        const headerJson = Buffer.from(sig.protected, 'base64url').toString('utf8');
+        kid = JSON.parse(headerJson).kid as string;
+      } catch {
+        signatureValid = false;
+        signatureError = 'protected header is not valid base64url JSON';
+      }
+      if (kid) {
+        const matchingJwk: JWK | undefined = findKeyByKid(jwks, kid);
+        if (matchingJwk) {
+          kidMatched = true;
+          try {
+            await verifyJws({ target: doc, signature: sig, publicKey: matchingJwk });
+            signatureValid = true;
+          } catch (e) {
+            signatureValid = false;
+            signatureError = (e as Error).message;
+          }
+        } else {
+          signatureValid = false;
+          signatureError = `no kid match: protected header kid='${kid}' not found in JWKS (kids present: ${jwks.keys.map((k) => k.kid).join(', ')})`;
+        }
+      }
+    } else if (!signatureError) {
+      // No JWKS source available: signature presence noted but not verified.
+      signatureError = 'no JWKS source available (--jwks not provided and no serving domain to derive one from)';
+    }
+  }
+
+  // Tier evaluation.
+  const tierResult = evaluateTier({
+    document: doc,
+    now,
+    servingDomain,
+    signatureValid: signatureValid === null ? undefined : signatureValid,
+    jwksCacheControlMaxAgeSeconds: jwksMaxAge,
+  });
+
+  // Final tier: invalid if schema invalid, else from tier result.
+  let finalTier: Tier = tierResult.tier;
+  if (!schemaOk) {
+    finalTier = 'invalid';
+  }
+
+  const result: VerifyJsonResult = {
+    tier: finalTier,
+    satisfied: schemaOk ? tierResult.satisfied : [],
+    signatureValid,
+    expired: tierResult.expired,
+    schemaErrors,
+    tierFailures: [...tierResult.failures],
+    jwksResolved,
+    kidMatched,
+  };
+  if (corsHeaderPresent !== undefined) {
+    result.corsHeaderPresent = corsHeaderPresent;
+  }
+
+  // Exit code.
+  let exitCode = 0;
+  if (!schemaOk) {
+    exitCode = 1;
+  } else if (opts.requireTier) {
+    const required = opts.requireTier as Tier;
+    if (!tierResult.satisfied.includes(required as Exclude<Tier, 'invalid'>)) {
+      exitCode = 1;
+    }
+  }
+  if (signatureValid === false && opts.requireTier === 'strict') {
+    exitCode = 1;
+  }
+
+  const notes: string[] = [...tierResult.notes];
+  if (signatureError) notes.push(`signature: ${signatureError}`);
+
+  return { exitCode, result, notes };
+}
+
+interface FetchDocResult {
+  body: string;
+  corsAllowAll: boolean;
+}
+
+async function fetchDoc(url: string): Promise<FetchDocResult> {
+  const response = await fetch(url, { redirect: 'follow' });
+  if (!response.ok) {
+    throw new Error(`document fetch failed: ${response.status} ${response.statusText} for ${url}`);
+  }
+  const body = await response.text();
+  const cors = response.headers.get('access-control-allow-origin');
+  return { body, corsAllowAll: cors === '*' };
+}
+
+function failHard(exitCode: number, message: string): VerifyOutcome {
+  return {
+    exitCode,
+    result: {
+      tier: 'invalid',
+      satisfied: [],
+      signatureValid: null,
+      expired: false,
+      schemaErrors: [],
+      tierFailures: [],
+      jwksResolved: false,
+      kidMatched: false,
+    },
+    notes: [message],
+  };
+}
+
+function extractPrimaryDomainPattern(): RegExp {
+  // Pull the regex out of the vendored schema rather than duplicating it.
+  const s = schemaJson as { $defs: { entity: { properties: { primary_domain: { pattern: string } } } } };
+  return new RegExp(s.$defs.entity.properties.primary_domain.pattern);
+}
+
+function printHuman(outcome: VerifyOutcome, opts: VerifyOpts): void {
+  const { result, notes } = outcome;
+  const isTty = process.stdout.isTTY;
+  const colour = (s: string, c: string): string => (isTty ? `\x1b[${c}m${s}\x1b[0m` : s);
+  const tierColour = (t: Tier): string => {
+    if (t === 'strict') return '32';
+    if (t === 'standard') return '36';
+    if (t === 'minimal') return '33';
+    return '31';
+  };
+
+  process.stdout.write(`Tier: ${colour(result.tier.toUpperCase(), tierColour(result.tier))}\n`);
+  if (result.satisfied.length > 0) {
+    process.stdout.write(`Satisfied: ${result.satisfied.join(', ')}\n`);
+  }
+  if (result.signatureValid === true) {
+    process.stdout.write(`Signature: ${colour('valid', '32')}\n`);
+  } else if (result.signatureValid === false) {
+    process.stdout.write(`Signature: ${colour('INVALID', '31')}\n`);
+  } else if (typeof result.signatureValid === 'boolean') {
+    // never (TypeScript exhaustiveness placeholder)
+  } else {
+    process.stdout.write('Signature: not present or not evaluated\n');
+  }
+  if (!opts.ignoreExpiry || opts.json) {
+    if (result.expired) {
+      process.stdout.write(`Freshness: ${colour('EXPIRED', '31')}\n`);
+    } else {
+      process.stdout.write(`Freshness: in window\n`);
+    }
+  }
+  if (result.schemaErrors.length > 0) {
+    process.stdout.write('\nSchema errors:\n');
+    for (const e of result.schemaErrors) {
+      process.stdout.write(`  ${e.path} (${e.keyword}): ${e.message}\n`);
+    }
+  }
+  if (result.tierFailures.length > 0) {
+    process.stdout.write('\nTier rule failures:\n');
+    for (const f of result.tierFailures) {
+      process.stdout.write(`  [${f.tier}] ${f.section} ${f.rule}: ${f.message}\n`);
+    }
+  }
+  if (notes.length > 0) {
+    process.stdout.write('\nNotes:\n');
+    for (const n of notes) process.stdout.write(`  ${n}\n`);
+  }
+  if (outcome.exitCode !== 0) {
+    process.stdout.write(`\nExit: ${outcome.exitCode}\n`);
+  }
+
+  // Quiet unused warning when no exhaustiveness needed.
+  void LlmoError;
+}

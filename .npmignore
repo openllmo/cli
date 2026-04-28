@@ -1,0 +1,16 @@
+src/
+!src/schema/
+test/
+scripts/
+.github/
+TASKS/
+tsconfig.json
+.gitignore
+*.log
+.DS_Store
+.env
+.env.local
+*.pem
+coverage/
+.nyc_output/
+CHANGELOG.md

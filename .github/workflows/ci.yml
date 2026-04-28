@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }} / ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ['20', '22']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Schema loads from built dist
+        run: |
+          node -e "
+          import('./dist/lib/schema.js').then(m => {
+            if (!m.schema || typeof m.schema !== 'object') {
+              console.error('schema did not load as expected from dist/');
+              process.exit(1);
+            }
+            if (typeof m.validate !== 'function') {
+              console.error('validate did not load as expected from dist/');
+              process.exit(1);
+            }
+            console.log('schema and validate loaded from dist/lib/schema.js');
+          }).catch(e => {
+            console.error('schema load failed:', e);
+            process.exit(1);
+          });
+          "
+      - name: dist/cli.js renders help
+        run: node ./dist/cli.js --help
+
+  vendor-drift:
+    name: vendor drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Re-vendor schema and fixtures and check for drift
+        run: |
+          ./scripts/vendor.sh
+          if ! git diff --exit-code -- src/schema test/fixtures; then
+            echo "ERROR: vendored schema or fixtures have drifted from upstream."
+            echo "Run scripts/vendor.sh locally and commit the result."
+            exit 1
+          fi
