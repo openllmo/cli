@@ -14,7 +14,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
 UPSTREAM="https://llmo.org/spec/v0.1"
-TODAY="$(date -u +%Y-%m-%d)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -49,15 +48,14 @@ curl -fsS "$UPSTREAM/schema.json" -o "$TMP/schema-upstream.json"
 node --input-type=module -e "
 import { readFileSync, writeFileSync } from 'node:fs';
 const upstream = readFileSync(process.argv[1], 'utf8');
-const today = process.argv[2];
-const commentLine = \`  \"\$comment\": \"Vendored from https://llmo.org/spec/v0.1/schema.json on \${today}. Do not hand-edit. Re-vendor by running scripts/vendor.sh.\",\n\`;
+const commentLine = \`  \"\$comment\": \"Vendored from https://llmo.org/spec/v0.1/schema.json. Do not hand-edit. Re-vendor by running scripts/vendor.sh.\",\n\`;
 const re = /^(\s*\"\\\$schema\":\s*\".*?\",?)\n/m;
 const m = upstream.match(re);
 if (!m) { console.error('vendor.sh: could not locate \$schema line in upstream schema'); process.exit(1); }
 const idx = (m.index ?? 0) + m[0].length;
 const out = upstream.slice(0, idx) + commentLine + upstream.slice(idx);
-writeFileSync(process.argv[3], out);
-" "$TMP/schema-upstream.json" "$TODAY" "$TMP/schema-local.json"
+writeFileSync(process.argv[2], out);
+" "$TMP/schema-upstream.json" "$TMP/schema-local.json"
 diff_and_replace "src/schema/v0.1.json" "$TMP/schema-local.json"
 
 # Fixtures: fetch verbatim, byte-for-byte from upstream.

@@ -37,7 +37,7 @@ evaluation. Publishers running `llmo verify ./llmo.json` (local mode)
 get tier-up-to-Strict-with-skipped-URL-checks. Verify output makes the
 distinction explicit through the Notes section.
 
-## Schema vendoring uses text-level insertion (2026-04-28)
+## Schema vendoring uses text-level insertion (2026-04-28, updated 2026-04-29)
 
 `scripts/vendor.sh` injects the `$comment` line into `src/schema/v0.1.json`
 via text-level insertion rather than JSON parse-and-serialize. Reason:
@@ -47,3 +47,11 @@ byte diff against upstream that obscures real schema changes when
 re-vendoring. Text-level insertion keeps the local file equal to upstream
 plus exactly one inserted line, so future `vendor.sh` runs surface real
 changes cleanly.
+
+The vendor script is deterministic: re-running it on unchanged upstream
+produces zero diffs, allowing CI to use `git diff --exit-code` after
+vendoring as a real drift signal. The vendoring date is not embedded in
+the file; the authoritative "when was this last vendored" answer is
+`git log -1 src/schema/v0.1.json`. An earlier draft included the date in
+the `$comment` line and was non-deterministic across days, defeating the
+CI drift check.

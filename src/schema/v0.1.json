@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "Vendored from https://llmo.org/spec/v0.1/schema.json on 2026-04-28. Do not hand-edit. Re-vendor by running scripts/vendor.sh.",
+  "$comment": "Vendored from https://llmo.org/spec/v0.1/schema.json. Do not hand-edit. Re-vendor by running scripts/vendor.sh.",
   "$id": "https://llmo.org/spec/v0.1/schema.json",
   "title": "LLMO Document v0.1",
   "description": "Schema for llmo.json documents conforming to LLMO Specification v0.1.",
