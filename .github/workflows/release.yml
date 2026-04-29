@@ -28,5 +28,9 @@ jobs:
             echo "ERROR: package.json version ($PKG_VERSION) does not match git tag ($TAG_VERSION)"
             exit 1
           fi
+      - name: Upgrade npm for Trusted Publishing support (requires v11.5.1+)
+        run: npm install -g npm@latest
       - name: npm publish (Trusted Publishing + provenance)
-        run: npm publish --access public --provenance
+        run: |
+          npm --version
+          npm publish --access public --provenance
