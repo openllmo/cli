@@ -37,6 +37,68 @@ evaluation. Publishers running `llmo verify ./llmo.json` (local mode)
 get tier-up-to-Strict-with-skipped-URL-checks. Verify output makes the
 distinction explicit through the Notes section.
 
+## Trusted Publishing setup notes (2026-04-29)
+
+Setting up npm Trusted Publishing for the v0.1.0 release surfaced three
+distinct gotchas. Each is a wall a future contributor could hit on their
+own setup; capturing them here so they're a five-minute fix instead of
+a multi-hour debug session.
+
+### 1. `actions/setup-node`'s `registry-url` poisons the auth path
+
+`actions/setup-node@v4` and `@v5` with the `registry-url:` option write
+an `.npmrc` containing `_authToken=${NODE_AUTH_TOKEN}` to the runner.
+With Trusted Publishing (no `NODE_AUTH_TOKEN` set), `npm publish` reads
+that `.npmrc`, sees an auth-token line configured, treats it as "the
+user has chosen token-based auth," resolves the empty token, and sends
+an unauthenticated PUT — which the registry returns as 404 without
+falling back to Trusted Publishing.
+
+**Fix:** drop `registry-url` from `setup-node`. With no `.npmrc`
+written, `npm` defaults to `https://registry.npmjs.org` and falls
+through to the Trusted Publishing path. Resolved in commits `35b576f`
+(initial NPM_TOKEN removal) and `2e811ad` (`registry-url` removal).
+
+### 2. Trusted Publishing requires npm CLI v11.5.1+
+
+Runner-bundled npm with Node 22 is 10.9.7 as of 2026-04-29. npm 10.x
+has no Trusted Publishing logic at all: `--provenance` works (it uses
+the OIDC token directly with sigstore for attestation), but the
+publish-time auth path has no OIDC fallback. With no `.npmrc`
+auth-token and no `NODE_AUTH_TOKEN`, npm 10.x exits with `ENEEDAUTH`
+instead of reaching for the OIDC token.
+
+**Fix:** upgrade npm to v11.5.1+ for the publish step. See gotcha #3
+for the right way to do that.
+
+### 3. `npm install -g npm@latest` hits the self-upgrade race
+
+The obvious "upgrade npm before publishing" approach
+(`npm install -g npm@latest`) hits npm's well-known self-upgrade race:
+npm 10.x removes its own modules during the install of npm 11.x, then
+crashes mid-flight with `MODULE_NOT_FOUND` for `promise-retry` as it
+tries to load already-removed internals. `--force` does not help; the
+issue is module-not-found, not a file conflict.
+
+**Fix:** don't self-upgrade. Run the publish through a transient
+npm@latest via `npx`, leaving the system npm untouched:
+
+```
+npx --package=npm@latest --yes -- npm publish --access public --provenance
+```
+
+The transient npm 11.x sees the inherited `ACTIONS_ID_TOKEN_REQUEST_*`
+env vars and uses Trusted Publishing for auth. Resolved in commits
+`96f7cf1` (initial in-place upgrade attempt that exposed the race) and
+`8016764` (npx-based final fix).
+
+### Final published state
+
+`llmo@0.1.0` published 2026-04-29 via GitHub Actions OIDC, SLSA v1
+provenance attached, no long-lived NPM_TOKEN involved. The
+`published by GitHub Actions <npm-oidc-no-reply@github.com>` line on
+the npm package page is the Trusted Publishing fingerprint.
+
 ## Schema vendoring uses text-level insertion (2026-04-28, updated 2026-04-29)
 
 `scripts/vendor.sh` injects the `$comment` line into `src/schema/v0.1.json`
