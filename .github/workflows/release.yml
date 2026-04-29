@@ -28,9 +28,14 @@ jobs:
             echo "ERROR: package.json version ($PKG_VERSION) does not match git tag ($TAG_VERSION)"
             exit 1
           fi
-      - name: Upgrade npm for Trusted Publishing support (requires v11.5.1+)
-        run: npm install -g npm@latest
       - name: npm publish (Trusted Publishing + provenance)
+        # Trusted Publishing requires npm CLI v11.5.1+. The runner's bundled
+        # npm with Node 22 is 10.9.7. Self-upgrading via `npm install -g
+        # npm@latest` hits the well-known npm self-upgrade race (npm 10.x
+        # removes its own modules mid-install and can't reload them). Bypass
+        # by running publish through a transient npm@latest via npx, leaving
+        # the system npm untouched.
         run: |
-          npm --version
-          npm publish --access public --provenance
+          echo "system npm: $(npm --version)"
+          npx --package=npm@latest --yes -- npm --version
+          npx --package=npm@latest --yes -- npm publish --access public --provenance
