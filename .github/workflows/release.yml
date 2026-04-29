@@ -29,7 +29,5 @@ jobs:
             echo "ERROR: package.json version ($PKG_VERSION) does not match git tag ($TAG_VERSION)"
             exit 1
           fi
-      - name: npm publish (with provenance)
+      - name: npm publish (Trusted Publishing + provenance)
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
