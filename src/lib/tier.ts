@@ -28,6 +28,7 @@ export interface TierInput {
   now: Date;
   servingDomain?: string;
   signatureValid?: boolean;
+  perClaimSignaturesValid?: boolean;
   jwksCacheControlMaxAgeSeconds?: number;
 }
 
@@ -137,6 +138,14 @@ export function evaluateTier(input: TierInput): TierResult {
     notes.push('§5.3 signature validity not evaluated: caller passed signatureValid=undefined');
   } else if (input.signatureValid === false) {
     failures.push({ tier: 'strict', rule: 'signature valid', section: '§5.3', message: 'JWS signature did not verify' });
+  }
+  if (input.perClaimSignaturesValid === false) {
+    failures.push({
+      tier: 'strict',
+      rule: 'all per-claim signatures verify',
+      section: '§5.3',
+      message: 'one or more per-claim JWS signatures did not verify (X6)',
+    });
   }
   if (input.jwksCacheControlMaxAgeSeconds !== undefined) {
     if (input.jwksCacheControlMaxAgeSeconds > 86400) {

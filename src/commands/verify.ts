@@ -16,10 +16,21 @@ interface VerifyOpts {
   now?: string;
 }
 
+export interface PerClaimSignatureResult {
+  index: number;
+  claim_id: string | null;
+  type: string | null;
+  presence: 'present' | 'absent';
+  verification: 'verified' | 'failed' | 'unverified' | null;
+  error?: string;
+  kid?: string;
+}
+
 export interface VerifyJsonResult {
   tier: Tier;
   satisfied: ReadonlyArray<Tier>;
   signatureValid: boolean | null;
+  perClaimSignatures: PerClaimSignatureResult[];
   expired: boolean;
   schemaErrors: SchemaIssue[];
   tierFailures: TierFailure[];
@@ -105,16 +116,25 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
   const schemaOk = validate(doc);
   const schemaErrors = schemaOk ? [] : formatErrors(validate.errors);
 
-  // Signature verification (if present).
+  // Signature verification (document-level and per-claim).
   let signatureValid: boolean | null = null;
   let jwksResolved = false;
   let kidMatched = false;
   let jwksMaxAge: number | undefined;
   let signatureError: string | undefined;
 
-  if (typeof doc.signature === 'object' && doc.signature !== null) {
-    const sig = doc.signature as DocumentSignature;
-    let jwks: Jwks | null = null;
+  // JWKS fetch is hoisted: needed if EITHER the document or any claim has a signature.
+  const docHasSig = typeof doc.signature === 'object' && doc.signature !== null;
+  const claimsArray: unknown[] = Array.isArray(doc.claims) ? (doc.claims as unknown[]) : [];
+  const anyClaimHasSig = claimsArray.some((c) => {
+    if (!c || typeof c !== 'object') return false;
+    const sig = (c as { signature?: unknown }).signature;
+    return typeof sig === 'object' && sig !== null;
+  });
+  const anySig = docHasSig || anyClaimHasSig;
+
+  let jwks: Jwks | null = null;
+  if (anySig) {
     try {
       if (opts.jwks) {
         if (opts.jwks.startsWith('http://') || opts.jwks.startsWith('https://')) {
@@ -132,7 +152,11 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
     } catch (e) {
       signatureError = `JWKS fetch failed: ${(e as Error).message}`;
     }
+  }
 
+  // Document-level verification.
+  if (docHasSig) {
+    const sig = doc.signature as DocumentSignature;
     if (jwks) {
       jwksResolved = true;
       let kid: string | undefined;
@@ -165,12 +189,144 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
     }
   }
 
+  // Per-claim verification (X6 per spec §5.3).
+  const perClaimSignatures: PerClaimSignatureResult[] = [];
+  let perClaimSignaturesValid: boolean | undefined = undefined;
+
+  if (claimsArray.length > 0) {
+    let anyFailed = false;
+    let anyChecked = false;
+
+    for (let i = 0; i < claimsArray.length; i++) {
+      const claim = claimsArray[i];
+      if (!claim || typeof claim !== 'object') {
+        perClaimSignatures.push({
+          index: i,
+          claim_id: null,
+          type: null,
+          presence: 'absent',
+          verification: null,
+        });
+        continue;
+      }
+
+      const claimObj = claim as Record<string, unknown>;
+      const claimSig = claimObj.signature;
+      const claimId = typeof claimObj.claim_id === 'string' ? claimObj.claim_id : null;
+      const claimType = typeof claimObj.type === 'string' ? claimObj.type : null;
+
+      if (!claimSig || typeof claimSig !== 'object') {
+        perClaimSignatures.push({
+          index: i,
+          claim_id: claimId,
+          type: claimType,
+          presence: 'absent',
+          verification: null,
+        });
+        continue;
+      }
+
+      // Per-claim signature is present.
+      if (!jwks) {
+        perClaimSignatures.push({
+          index: i,
+          claim_id: claimId,
+          type: claimType,
+          presence: 'present',
+          verification: 'unverified',
+          error: 'JWKS not available',
+        });
+        continue;
+      }
+
+      const sig = claimSig as DocumentSignature;
+      let kid: string | undefined;
+      try {
+        const headerJson = Buffer.from(sig.protected, 'base64url').toString('utf8');
+        const parsed = JSON.parse(headerJson) as { kid?: unknown };
+        kid = typeof parsed.kid === 'string' ? parsed.kid : undefined;
+      } catch {
+        perClaimSignatures.push({
+          index: i,
+          claim_id: claimId,
+          type: claimType,
+          presence: 'present',
+          verification: 'failed',
+          error: 'protected header decode failed',
+        });
+        anyFailed = true;
+        anyChecked = true;
+        continue;
+      }
+
+      if (!kid) {
+        perClaimSignatures.push({
+          index: i,
+          claim_id: claimId,
+          type: claimType,
+          presence: 'present',
+          verification: 'failed',
+          error: 'protected header missing kid',
+        });
+        anyFailed = true;
+        anyChecked = true;
+        continue;
+      }
+
+      const matchingJwk: JWK | undefined = findKeyByKid(jwks, kid);
+      if (!matchingJwk) {
+        perClaimSignatures.push({
+          index: i,
+          claim_id: claimId,
+          type: claimType,
+          presence: 'present',
+          verification: 'failed',
+          error: `kid '${kid}' not in JWKS`,
+        });
+        anyFailed = true;
+        anyChecked = true;
+        continue;
+      }
+
+      try {
+        await verifyJws({ target: claim, signature: sig, publicKey: matchingJwk });
+        perClaimSignatures.push({
+          index: i,
+          claim_id: claimId,
+          type: claimType,
+          presence: 'present',
+          verification: 'verified',
+          kid,
+        });
+        anyChecked = true;
+      } catch (e) {
+        perClaimSignatures.push({
+          index: i,
+          claim_id: claimId,
+          type: claimType,
+          presence: 'present',
+          verification: 'failed',
+          error: (e as Error).message,
+          kid,
+        });
+        anyFailed = true;
+        anyChecked = true;
+      }
+    }
+
+    if (anyChecked) {
+      perClaimSignaturesValid = !anyFailed;
+    }
+    // If anyChecked is false (no claim had a verifiable signature), perClaimSignaturesValid stays undefined.
+  }
+
   // Tier evaluation.
   const tierResult = evaluateTier({
     document: doc,
     now,
     servingDomain,
     signatureValid: signatureValid === null ? undefined : signatureValid,
+    perClaimSignaturesValid,
     jwksCacheControlMaxAgeSeconds: jwksMaxAge,
   });
 
@@ -184,6 +340,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
     tier: finalTier,
     satisfied: schemaOk ? tierResult.satisfied : [],
     signatureValid,
+    perClaimSignatures,
     expired: tierResult.expired,
     schemaErrors,
     tierFailures: [...tierResult.failures],
@@ -204,7 +361,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
       exitCode = 1;
     }
   }
-  if (signatureValid === false && opts.requireTier === 'strict') {
+  if ((signatureValid === false || perClaimSignaturesValid === false) && opts.requireTier === 'strict') {
     exitCode = 1;
   }
 
@@ -236,6 +393,7 @@ function failHard(exitCode: number, message: string): VerifyOutcome {
       tier: 'invalid',
       satisfied: [],
       signatureValid: null,
+      perClaimSignatures: [],
       expired: false,
       schemaErrors: [],
       tierFailures: [],
@@ -276,6 +434,33 @@ function printHuman(outcome: VerifyOutcome, opts: VerifyOpts): void {
   } else {
     process.stdout.write('Signature: not present or not evaluated\n');
   }
+
+  // Per-claim signatures.
+  const perClaim = result.perClaimSignatures || [];
+  const claimsWithSigs = perClaim.filter((pc) => pc.presence === 'present');
+  if (claimsWithSigs.length === 0) {
+    if (perClaim.length > 0) {
+      process.stdout.write(`Per-claim signatures: none present\n`);
+    }
+    // If perClaim is empty (no claims at all), print nothing.
+  } else {
+    process.stdout.write(`Per-claim signatures:\n`);
+    for (const pc of claimsWithSigs) {
+      const lbl = pc.claim_id ? `"${pc.claim_id}"` : `index ${pc.index}`;
+      let statusStr: string;
+      if (pc.verification === 'verified') {
+        statusStr = colour('verified', '32') + (pc.kid ? `, kid=${pc.kid}` : '');
+      } else if (pc.verification === 'failed') {
+        statusStr = colour('INVALID', '31') + (pc.error ? `, ${pc.error}` : '');
+      } else if (pc.verification === 'unverified') {
+        statusStr = colour('unverified', '33') + (pc.error ? `, ${pc.error}` : '');
+      } else {
+        statusStr = 'not evaluated';
+      }
+      process.stdout.write(`  claim ${lbl} (${pc.type ?? 'unknown'}): ${statusStr}\n`);
+    }
+  }
+
   if (!opts.ignoreExpiry || opts.json) {
     if (result.expired) {
       process.stdout.write(`Freshness: ${colour('EXPIRED', '31')}\n`);

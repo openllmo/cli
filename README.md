@@ -101,6 +101,15 @@ document with a valid signature reports its evaluated tier AND
 `expired: true`. The signature does not become invalid because of
 expiry.
 
+Per-claim signatures (when present) are verified independently of the
+document-level signature. Each claim that carries its own `signature`
+field is checked against the publisher's JWKS, with results reported
+as `verified`, `INVALID`, or `unverified` (when JWKS is unreachable).
+Documents with no per-claim signatures pass the X6 strict-tier check
+trivially per spec §5.3. The `--require-tier strict` flag enforces
+all per-claim signatures verify in addition to the document-level
+signature.
+
 ### `llmo doctor <domain>`
 
 End-to-end health check on a deployed `/.well-known/llmo.json`.
