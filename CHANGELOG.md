@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.5 - 2026-05-07
+
+The CLI's version tracks the spec version it implements. Spec versions 0.1.1 through 0.1.4 were patches that did not require CLI code changes (the JCS canonicalization, JWS profile, and schema were re-vendored automatically via `scripts/vendor.sh` without affecting the CLI's logic). 0.1.5 is the first spec version that introduced new CLI logic, so the CLI jumps from 0.1.0 directly to 0.1.5. This policy is documented in `NOTES.md`.
+
+### Verification
+
+- `llmo verify` now performs per-claim signature verification per [§5.3](https://llmo.org/spec/v0.1#5-3-strict-conformance) (rule X6). Previously `llmo sign --claim <id>` could create per-claim signatures but `llmo verify` ignored them entirely; that asymmetry is closed.
+- `--json` output gains a `perClaimSignatures` field carrying per-claim presence and verification status. The existing `signatureValid` field is unchanged for backward compatibility with CI consumers.
+- `--require-tier strict` exits non-zero when any per-claim signature fails verification.
+- Documents with no per-claim signatures pass X6 trivially, matching the spec.
+
+### Algorithm support
+
+- ES256, ES384, and EdDSA are all supported for both document-level and per-claim signatures, dispatched from the JWS protected header's `alg` field. The underlying JWS verification was already algorithm-generic via `jose`; the per-claim path now reuses the same dispatch.
+
+### Schema
+
+- Vendored `src/schema/v0.1.json` refreshed against the upstream spec (claim `type` field is now a `oneOf` with explicit core-type enum and namespaced-extension pattern per [§3.5](https://llmo.org/spec/v0.1#3-5-claim-types) and [§3.6](https://llmo.org/spec/v0.1#3-6-extension-claim-types); `identity.founded` gained a date-format pattern).
+
+### Tests
+
+- Nine new tests cover per-claim verification: PASS, FAIL on tampered signature, FAIL on kid not in JWKS, FAIL on malformed protected header, document and per-claim both PASS, tier downgrade when document-level passes but per-claim fails, trivial PASS when no claim has a signature, ES384 per-claim verification, EdDSA per-claim verification.
+- CI matrix expanded to enforce all four combinations of Node 20 / Node 22 with Ubuntu / macOS plus a vendor drift check.
+
+### Operational
+
+- Branch protection enforced on `main` for the cli repo. PR plus passing CI is the only path to merging. Documented at `infrastructure/branch-protection.{json,md}`.
+
 ## 0.1.0 - 2026-04-28
 
 Initial public release. Reference CLI for the LLMO protocol per
