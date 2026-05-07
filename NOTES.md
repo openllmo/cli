@@ -51,7 +51,7 @@ an `.npmrc` containing `_authToken=${NODE_AUTH_TOKEN}` to the runner.
 With Trusted Publishing (no `NODE_AUTH_TOKEN` set), `npm publish` reads
 that `.npmrc`, sees an auth-token line configured, treats it as "the
 user has chosen token-based auth," resolves the empty token, and sends
-an unauthenticated PUT — which the registry returns as 404 without
+an unauthenticated PUT, which the registry returns as 404 without
 falling back to Trusted Publishing.
 
 **Fix:** drop `registry-url` from `setup-node`. With no `.npmrc`
@@ -117,3 +117,17 @@ the file; the authoritative "when was this last vendored" answer is
 `git log -1 src/schema/v0.1.json`. An earlier draft included the date in
 the `$comment` line and was non-deterministic across days, defeating the
 CI drift check.
+
+## Versioning policy: CLI tracks the spec version it implements (2026-05-07)
+
+The CLI's published version equals the LLMO spec version it conforms to. Spec patches that do not require CLI code changes (because the JCS canonicalization, JWS profile, and schema are all re-vendored automatically without affecting CLI logic) do not produce a corresponding CLI release; the CLI version effectively "skips" those patch numbers.
+
+Concrete history: spec versions 0.1.1 through 0.1.4 introduced JWS clarifications, scope tightening, schema fixes, and similar patches that the CLI absorbed by re-running `scripts/vendor.sh` and continuing to consume the schema. The CLI did not ship a release for any of those. Spec version 0.1.5 added per-claim signature verification (rule X6 per §5.3), which required new CLI logic; the CLI therefore released 0.1.5, jumping directly from 0.1.0.
+
+Implications for future releases:
+
+- A spec patch that does not touch CLI logic does not produce a CLI release. The previous CLI release continues to work against the new spec patch, because the spec patch by definition didn't change anything the CLI cares about. Re-vendoring at CI time keeps the schema fresh.
+- A spec change that does require CLI logic produces a CLI release at the spec's version number, even if intermediate spec versions were skipped.
+- A CLI bug fix that does not track a spec change is the case this policy does not cover. When that case arises, the policy needs explicit guidance: probably a four-component version (e.g., 0.1.5-1) or a switch to independent CLI versioning. Decide at the time, document the decision here.
+
+This policy keeps the CLI's version a reliable signal of "which spec version this CLI implements" without requiring synthesized empty releases for spec patches that were CLI no-ops. The cost is occasional version-number jumps; the benefit is that `npm install -g llmo@0.1.7` (whenever 0.1.7 happens) tells the user immediately which spec version they get.
