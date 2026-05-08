@@ -6,6 +6,10 @@
 
 - CLI version string in `--version` output is now derived from package.json at runtime (read via `node:fs` from the file adjacent to the published package root). Previously the version was hardcoded in src/cli.ts and required a separate manual bump per release. Future releases need only update package.json (the lockfile updates automatically via `npm install`).
 
+### Security
+
+- Bumped transitive dependency fast-uri from 3.1.0 to 3.1.2 to close two npm audit advisories (GHSA-q3j6-qgpj-74h6, GHSA-v39h-62p7-jpjc). Zero runtime exposure for llmo's actual code paths (ajv uses fast-uri only on llmo-controlled static schema URIs; user-supplied URLs go through ajv-formats's regex uri() validator). Fixed despite zero exposure to keep the published package's public-facing audit status clean.
+
 ## 0.1.6 - 2026-05-08
 
 ### Fixed
