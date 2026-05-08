@@ -127,7 +127,44 @@ export function evaluateTier(input: TierInput): TierResult {
   } else {
     notes.push('§5.2 primary_domain match not evaluated: no serving domain provided (informational; not applicable to local-file inputs)');
   }
-  notes.push('§5.2 URL-scope rule (URLs resolve to primary_domain or aliases) not evaluated in v0.1.0; informational');
+
+  // §5.2 S4: every claim URL resolves to an owned domain or is on the
+  // spec's third-party-allowed field list. Ports validator.js
+  // collectClaimUrls + owned-domain check to TS. Third-party-allowed
+  // fields per §5.2 S4: pointer.url, disavowal.disavowed[].url,
+  // official_channels.community[].url, personnel.spokespeople[].verification.
+  const owned = ownedDomainSet(doc);
+  if (Array.isArray(claims)) {
+    const s4Issues: string[] = [];
+    (claims as Array<Record<string, unknown>>).forEach((claim, i) => {
+      if (typeof claim !== 'object' || claim === null) return;
+      const type = typeof claim.type === 'string' ? claim.type : '';
+      collectClaimUrls(claim).forEach((u) => {
+        if (u.thirdPartyAllowed) return;
+        let host: string;
+        try {
+          host = new URL(u.url).hostname.toLowerCase();
+        } catch {
+          s4Issues.push(`claim[${i}] (${type}): ${u.url} is not a parseable URL`);
+          return;
+        }
+        const ok = owned.some((d) => subdomainOrEqual(host, d));
+        if (!ok) {
+          s4Issues.push(
+            `claim[${i}] (${type}): ${u.url} resolves to ${host}, not in owned set {${owned.join(', ') || 'empty'}}`,
+          );
+        }
+      });
+    });
+    if (s4Issues.length > 0) {
+      failures.push({
+        tier: 'standard',
+        rule: 'all claim URLs resolve to owned domain or are third-party pointers',
+        section: '§5.2',
+        message: s4Issues.join('; '),
+      });
+    }
+  }
 
   // §5.3 Strict
   const docHasSignature = typeof doc.signature === 'object' && doc.signature !== null;
@@ -159,7 +196,39 @@ export function evaluateTier(input: TierInput): TierResult {
   } else {
     notes.push('§5.3 JWKS Cache-Control max-age not evaluated (URL-mode-only)');
   }
-  notes.push('§5.3 URL-claims-domain-ownership rule (canonical_urls reference required) not evaluated in v0.1.0; informational');
+
+  // §5.3 X4: at least one canonical_urls claim must have at least one
+  // URL on the entity's owned-domain set. Ports validator.js X4 to TS.
+  if (Array.isArray(claims)) {
+    const cuClaims = (claims as Array<Record<string, unknown>>).filter((c) => c?.type === 'canonical_urls');
+    let x4ok = false;
+    for (const c of cuClaims) {
+      if (x4ok) break;
+      const st = (typeof c.statement === 'object' && c.statement !== null ? c.statement : {}) as Record<string, unknown>;
+      for (const k of Object.keys(st)) {
+        const v = st[k];
+        if (!isUriLike(v)) continue;
+        let host: string;
+        try {
+          host = new URL(v as string).hostname.toLowerCase();
+        } catch {
+          continue;
+        }
+        if (owned.some((d) => subdomainOrEqual(host, d))) {
+          x4ok = true;
+          break;
+        }
+      }
+    }
+    if (!x4ok) {
+      failures.push({
+        tier: 'strict',
+        rule: 'canonical_urls claim has owned-domain URL',
+        section: '§5.3',
+        message: 'no canonical_urls URL matches primary_domain or aliases',
+      });
+    }
+  }
 
   // Aggregate
   const minimalFailures = failures.filter((f) => f.tier === 'minimal');
@@ -200,4 +269,88 @@ function parseDate(v: unknown): Date | null {
   const d = new Date(v);
   if (isNaN(d.getTime())) return null;
   return d;
+}
+
+// URL ownership helpers, ported from static/js/validator.js (§5.2 S4,
+// §5.3 X4). Match the validator's semantics exactly: lowercase, with a
+// subdomain-tolerant comparison via subdomainOrEqual.
+
+interface ClaimUrl {
+  url: string;
+  thirdPartyAllowed: boolean;
+}
+
+function isUriLike(s: unknown): s is string {
+  if (typeof s !== 'string') return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function subdomainOrEqual(host: string, owned: string): boolean {
+  return host === owned || host.endsWith('.' + owned);
+}
+
+function ownedDomainSet(doc: Record<string, unknown>): string[] {
+  const entity = (typeof doc.entity === 'object' && doc.entity !== null ? doc.entity : {}) as Record<string, unknown>;
+  const primary = entity.primary_domain;
+  const aliases = Array.isArray(entity.aliases) ? entity.aliases : [];
+  return [primary, ...aliases]
+    .filter((d): d is string => typeof d === 'string')
+    .map((d) => d.toLowerCase());
+}
+
+// Mirrors validator.js collectClaimUrls. Third-party-allowed flags
+// follow §5.2 S4: pointer.url, disavowal.disavowed[].url,
+// official_channels.community[].url, personnel.spokespeople[].verification.
+// All other URL-typed claim fields must resolve to an owned domain.
+function collectClaimUrls(claim: Record<string, unknown>): ClaimUrl[] {
+  const urls: ClaimUrl[] = [];
+  const t = claim.type;
+  const s = claim.statement;
+  if (typeof s !== 'object' || s === null) return urls;
+  const stmt = s as Record<string, unknown>;
+  const push = (u: unknown, tpa: boolean): void => {
+    if (isUriLike(u)) urls.push({ url: u, thirdPartyAllowed: tpa });
+  };
+  if (t === 'canonical_urls') {
+    Object.keys(stmt).forEach((k) => push(stmt[k], false));
+  } else if (t === 'official_channels') {
+    if (typeof stmt.community === 'object' && stmt.community !== null) {
+      const community = stmt.community as Record<string, unknown>;
+      Object.keys(community).forEach((k) => push(community[k], true));
+    }
+  } else if (t === 'product_facts') {
+    if (Array.isArray(stmt.products)) {
+      stmt.products.forEach((p) => {
+        if (typeof p === 'object' && p !== null && 'url' in p) push((p as Record<string, unknown>).url, false);
+      });
+    }
+  } else if (t === 'personnel') {
+    if (Array.isArray(stmt.spokespeople)) {
+      stmt.spokespeople.forEach((sp) => {
+        if (typeof sp === 'object' && sp !== null && 'verification' in sp) {
+          push((sp as Record<string, unknown>).verification, true);
+        }
+      });
+    }
+  } else if (t === 'disavowal') {
+    if (Array.isArray(stmt.disavowed)) {
+      stmt.disavowed.forEach((d) => {
+        if (typeof d === 'object' && d !== null && 'url' in d) push((d as Record<string, unknown>).url, true);
+      });
+    }
+  } else if (t === 'supersedes') {
+    if (Array.isArray(stmt.superseded)) {
+      stmt.superseded.forEach((x) => {
+        if (typeof x === 'object' && x !== null && 'url' in x) push((x as Record<string, unknown>).url, false);
+      });
+    }
+  } else if (t === 'pointer') {
+    if ('url' in stmt) push(stmt.url, true);
+  }
+  return urls;
 }
