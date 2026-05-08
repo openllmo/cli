@@ -1,0 +1,76 @@
+name: Vendor drift check
+
+on:
+  schedule:
+    # Daily at 14:00 UTC (after Monday-13:00 weekly-digest if it's Monday)
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Run vendor script
+        run: bash scripts/vendor.sh
+
+      - name: Check for drift
+        id: drift
+        run: |
+          if git diff --exit-code; then
+            echo "drifted=false" >> $GITHUB_OUTPUT
+          else
+            echo "drifted=true" >> $GITHUB_OUTPUT
+            git diff > /tmp/drift.diff
+          fi
+
+      - name: File or update drift issue
+        if: steps.drift.outputs.drifted == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const diff = fs.readFileSync('/tmp/drift.diff', 'utf8');
+            const title = 'Vendored schema has drifted from canonical';
+            const body = `The scheduled vendor-drift check ran \`scripts/vendor.sh\` and detected drift between the CLI's vendored schema (\`src/schema/v0.1.json\`) and the canonical schema at https://llmo.org/spec/v0.1/schema.json.
+
+            Re-vendor by running \`scripts/vendor.sh\` locally and opening a PR.
+
+            <details>
+            <summary>Diff</summary>
+
+            \`\`\`diff
+            ${diff}
+            \`\`\`
+
+            </details>`;
+
+            // Look for existing open issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'vendor-drift'
+            });
+
+            if (issues.data.length > 0) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                body: body
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['vendor-drift']
+              });
+            }
