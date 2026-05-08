@@ -228,6 +228,16 @@ with new minor versions of the spec.
 
 MIT. Copyright Diverse.org, Inc.
 
+## Maintenance
+
+### Vendor drift
+
+A scheduled GitHub Actions workflow (`.github/workflows/vendor-drift.yml`)
+runs `scripts/vendor.sh` daily and files an issue if the vendored schema
+(`src/schema/v0.1.json`) has drifted from the canonical schema at
+https://llmo.org/spec/v0.1/schema.json. To resolve a drift issue, run
+`scripts/vendor.sh` locally and open a PR.
+
 ## Contributing
 
 Issues and pull requests welcome at
