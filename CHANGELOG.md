@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-05-08
+
+Same-day follow-up release closing two small surfaces from the v0.1.6 publish:
+the CLI's `--version` output is now derived from package.json (closing a
+release-versioning SSOT gap); a transitive dependency advisory on fast-uri is
+resolved (lockfile-only bump). Neither change affects llmo's runtime semantics
+for end users; v0.1.6 documents are evaluated identically by v0.1.7.
+
 ### Changed
 
 - CLI version string in `--version` output is now derived from package.json at runtime (read via `node:fs` from the file adjacent to the published package root). Previously the version was hardcoded in src/cli.ts and required a separate manual bump per release. Future releases need only update package.json (the lockfile updates automatically via `npm install`).
