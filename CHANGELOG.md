@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- CLI version string in `--version` output is now derived from package.json at runtime (read via `node:fs` from the file adjacent to the published package root). Previously the version was hardcoded in src/cli.ts and required a separate manual bump per release. Future releases need only update package.json (the lockfile updates automatically via `npm install`).
+
 ## 0.1.6 - 2026-05-08
 
 ### Fixed
