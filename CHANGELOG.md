@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.1.6 - 2026-05-08
+
 ### Fixed
 
 - §5.2 S4 (URL ownership) and §5.3 X4 (URL-claims-domain-ownership) now enforced rather than emitted as informational notes. Documents that fail S4 or X4 will now correctly fail standard or strict tier in `llmo verify`. Previously these rules were marked "not evaluated in v0.1.0; informational"; the validator at /validator/ had always enforced them, so this brings the CLI to parity.

@@ -11,7 +11,7 @@ const program = new Command();
 program
   .name('llmo')
   .description('Reference CLI for the LLMO protocol. Sign and verify llmo.json documents per https://llmo.org/spec/v0.1')
-  .version('0.1.5');
+  .version('0.1.6');
 
 program.addCommand(initCommand());
 program.addCommand(keygenCommand());
