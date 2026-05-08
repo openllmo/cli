@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- §5.2 S4 (URL ownership) and §5.3 X4 (URL-claims-domain-ownership) now enforced rather than emitted as informational notes. Documents that fail S4 or X4 will now correctly fail standard or strict tier in `llmo verify`. Previously these rules were marked "not evaluated in v0.1.0; informational"; the validator at /validator/ had always enforced them, so this brings the CLI to parity.
+
 ## 0.1.5 - 2026-05-07
 
 The CLI's version tracks the spec version it implements. Spec versions 0.1.1 through 0.1.4 were patches that did not require CLI code changes (the JCS canonicalization, JWS profile, and schema were re-vendored automatically via `scripts/vendor.sh` without affecting the CLI's logic). 0.1.5 is the first spec version that introduced new CLI logic, so the CLI jumps from 0.1.0 directly to 0.1.5. This policy is documented in `NOTES.md`.
