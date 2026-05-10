@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security reports
+    url: https://github.com/openllmo/cli/blob/main/SECURITY.md
+    about: Security issues should be reported privately. See SECURITY.md for the process.
+  - name: Spec issues and proposals
+    url: https://github.com/openllmo/llmo.org/issues/new/choose
+    about: Bugs in the LLMO specification or proposals for new claim types belong in the llmo.org repository, not here.
