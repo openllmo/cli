@@ -14,7 +14,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
 UPSTREAM="https://llmo.org/spec/v0.1"
-SKILL_UPSTREAM="https://raw.githubusercontent.com/openllmo/llmo.org/main/.claude/skills/llmo"
+
+# Resolve the skill upstream ref. Order of precedence:
+#   1. LLMO_SKILL_REF env var (explicit, used by tagged releases and CI
+#      verification to pin against a known SHA).
+#   2. Contents of skill/.vendored-from (records the SHA used by the
+#      most recent successful vendor pass; ordinary re-runs are
+#      idempotent against this).
+#   3. "main" (TOFU fallback; only hit on first-time vendoring before
+#      .vendored-from exists).
+if [[ -n "${LLMO_SKILL_REF:-}" ]]; then
+  SKILL_REF="$LLMO_SKILL_REF"
+elif [[ -f "$ROOT/skill/.vendored-from" ]]; then
+  SKILL_REF="$(cat "$ROOT/skill/.vendored-from" | tr -d '[:space:]')"
+else
+  SKILL_REF="main"
+fi
+SKILL_UPSTREAM="https://raw.githubusercontent.com/openllmo/llmo.org/${SKILL_REF}/.claude/skills/llmo"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -70,7 +86,7 @@ done
 # hook so `/llmo` becomes available in Claude Code immediately after
 # `npm install -g llmo`.
 echo
-echo "Vendoring skill files from $SKILL_UPSTREAM"
+echo "Vendoring skill files from $SKILL_UPSTREAM (ref: $SKILL_REF)"
 for f in SKILL.md README.md; do
   curl -fsS "$SKILL_UPSTREAM/${f}" -o "$TMP/skill-${f}"
   diff_and_replace "skill/${f}" "$TMP/skill-${f}"
@@ -79,6 +95,12 @@ for phase in 01-greet 02-interview 03-derive 04-review 05-verify-contacts 06-dns
   curl -fsS "$SKILL_UPSTREAM/phases/${phase}.md" -o "$TMP/phase-${phase}.md"
   diff_and_replace "skill/phases/${phase}.md" "$TMP/phase-${phase}.md"
 done
+
+# Record the ref this vendor pass used so subsequent runs (CI drift
+# checks, ordinary re-vendor) are idempotent against the same upstream
+# state without needing the env var. To bump the pin: run with
+# LLMO_SKILL_REF=<new-sha> and commit the diff.
+echo "$SKILL_REF" > "$ROOT/skill/.vendored-from"
 
 echo
 if [[ $CHANGED -eq 0 ]]; then

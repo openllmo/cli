@@ -36,10 +36,10 @@ jobs:
           script: |
             const fs = require('fs');
             const diff = fs.readFileSync('/tmp/drift.diff', 'utf8');
-            const title = 'Vendored schema has drifted from canonical';
-            const body = `The scheduled vendor-drift check ran \`scripts/vendor.sh\` and detected drift between the CLI's vendored schema (\`src/schema/v0.1.json\`) and the canonical schema at https://llmo.org/spec/v0.1/schema.json.
+            const title = 'Vendored content has drifted from canonical';
+            const body = `The scheduled vendor-drift check ran \`scripts/vendor.sh\` and detected drift between the CLI's vendored content (\`src/schema/v0.1.json\`, \`test/fixtures/\`, or \`skill/\`) and the canonical sources at https://llmo.org/spec/v0.1/ and https://github.com/openllmo/llmo.org/tree/main/.claude/skills/llmo/.
 
-            Re-vendor by running \`scripts/vendor.sh\` locally and opening a PR.
+            Re-vendor by running \`scripts/vendor.sh\` locally and opening a PR. If the drift is in \`skill/\`, bump the pin via \`LLMO_SKILL_REF=<sha> ./scripts/vendor.sh\` (or update \`skill/.vendored-from\`).
 
             <details>
             <summary>Diff</summary>
