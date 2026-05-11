@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-05-11
+
+Security-review hardening of v0.1.9's postinstall hook and skill
+vendor pipeline. Re-vendors the skill at openllmo/llmo.org commit
+`a7100ce` (PR #133), which tightens phases 05, 07, and 08 of the
+`/llmo` skill (per-email-domain DNS verification clarification, `kid`
+regex validation, literal-filename `rm`). Same protocol parity as
+v0.1.9; same two-command publish flow (`npm install -g llmo` →
+`/llmo` in Claude Code).
+
+### Security
+
+- **`scripts/postinstall.js`: `cpSync` no longer dereferences symlinks** (`dereference: false`, `verbatimSymlinks: false`). Pre-copy, the script walks `skill/` and refuses to install if any symlink is present. Closes the class where a symlink shipped in the vendored skill would dereference at install time and read a file from outside the install path when the Claude Code harness loaded the phase.
+- **`scripts/postinstall.js`: `LLMO_SKILL_DIR` is normalized and confined to HOME** via `path.resolve()` + prefix check. Out-of-HOME targets are refused unless `LLMO_ALLOW_OUT_OF_HOME=1` is set (CI test escape hatch). Closes the class where a transitive postinstall earlier in the same `npm install` could set `LLMO_SKILL_DIR=/etc/cron.d` and redirect our writes there.
+- **`scripts/postinstall.js`: refuses to run under root unless `LLMO_ALLOW_ROOT_INSTALL=1`** is set. `sudo npm install -g llmo` no longer writes skill files into the root user's home directory by surprise. Ordinary unprivileged installs are unaffected.
+
+### Changed
+
+- **`scripts/vendor.sh`: skill source is pinned via `LLMO_SKILL_REF`** with the resolved ref recorded to `skill/.vendored-from` after a successful fetch. Resolution order: `LLMO_SKILL_REF` env var → contents of `skill/.vendored-from` → `main` (TOFU fallback for first-time vendoring). The vendor-drift CI job uses the pin transparently; bumps go through `LLMO_SKILL_REF=<sha> ./scripts/vendor.sh`.
+- **`skill/.vendored-from` (new)** records the upstream commit SHA the current `skill/` was vendored from. Pinned to `a7100ce7a549828795e014560ea858d8dbeed43c` for this release.
+- **`.github/workflows/ci.yml` vendor-drift PR check** extended to cover `skill/` (was previously scoped to `src/schema` and `test/fixtures` only). A PR with skill content out-of-sync with the pinned upstream SHA will now fail the gate at PR time, not only at the scheduled daily run.
+- **`.github/workflows/vendor-drift.yml` issue body** generalized to mention `src/schema/`, `test/fixtures/`, and `skill/` since the workflow already runs unfiltered `git diff --exit-code`.
+
+### Skill content (vendored)
+
+Re-vendor pulls in the three skill phase doc tightenings from openllmo/llmo.org PR #133:
+
+- Phase 05 (verify-contacts): documents that DNS verification is per email-address domain, not per apex. A publisher with addresses at both `example.com` and `mail.example.com` adds two TXT records.
+- Phase 07 (keygen): requires the publisher-supplied `kid` to match `^[a-z0-9][a-z0-9-]{0,31}$` before any shell or filename use. Closes an injection vector via identifiers that reach `rm`, `llmo keygen --kid`, `llmo sign --kid`, and `llmo-private-<kid>.pem`.
+- Phase 08 (sign): the `rm` to delete the private key uses the literal filename string emitted by `llmo keygen` in phase 07. No re-templating, no globs, no relative paths with `..`.
+
 ## [0.1.9] - 2026-05-11
 
 Bundles the `/llmo` Claude Code skill into the npm package. After

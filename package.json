@@ -1,6 +1,6 @@
 {
   "name": "llmo",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Reference CLI for the LLMO protocol. Sign and verify llmo.json documents per the v0.1 specification at https://llmo.org/spec/v0.1. Bundles the /llmo Claude Code skill for guided publishing.",
   "type": "module",
   "bin": {

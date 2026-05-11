@@ -55,11 +55,12 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Re-vendor schema and fixtures and check for drift
+      - name: Re-vendor schema, fixtures, and skill, and check for drift
         run: |
           ./scripts/vendor.sh
-          if ! git diff --exit-code -- src/schema test/fixtures; then
-            echo "ERROR: vendored schema or fixtures have drifted from upstream."
+          if ! git diff --exit-code -- src/schema test/fixtures skill; then
+            echo "ERROR: vendored schema, fixtures, or skill have drifted from upstream."
             echo "Run scripts/vendor.sh locally and commit the result."
+            echo "To bump the skill pin: LLMO_SKILL_REF=<sha> ./scripts/vendor.sh"
             exit 1
           fi
