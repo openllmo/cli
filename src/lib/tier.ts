@@ -351,6 +351,19 @@ function collectClaimUrls(claim: Record<string, unknown>): ClaimUrl[] {
     }
   } else if (t === 'pointer') {
     if ('url' in stmt) push(stmt.url, true);
+  } else if (t === 'categories') {
+    // v0.1.8: schema.org Organization subtype URIs in primary + secondary.
+    // These are type identifiers (external standards URIs), not endpoints the
+    // publisher controls; classify as third-party-allowed for S4. Matches the
+    // treatment in static/js/validator.js on llmo.org.
+    if ('primary' in stmt) push(stmt.primary, true);
+    if (Array.isArray(stmt.secondary)) {
+      stmt.secondary.forEach((u) => push(u, true));
+    }
   }
+  // v0.1.8 contact_points, locations, hours, attributes, operational_status
+  // have no URL-typed fields S4 evaluates. Their content (email addresses,
+  // postal addresses, coordinates, time strings, attribute values) is not
+  // collected here.
   return urls;
 }
