@@ -8,6 +8,15 @@
 // schema is the only one this validator ever sees, and we want noisy
 // failure if its shape changes in a way AJV does not recognize.
 //
+// Decision: strictRequired=false. Reason: v0.1.8 uses the idiomatic
+// JSON Schema conditional-required pattern (if/then with `required` in
+// the then block; the required properties are defined in the parent
+// schema's properties via allOf composition). AJV's strictRequired=true
+// rejects this even though the schema is valid Draft 2020-12. The
+// validator at /validator/ uses strict=false; we keep strict=true here
+// for unknown-keyword detection, just opt out of the same-scope-
+// properties requirement.
+//
 // Decision: validateFormats=true with ajv-formats. Reason: the schema
 // uses date-time and uri formats; without ajv-formats those resolve to
 // no-op assertions and silently let bad input through.
@@ -36,6 +45,7 @@ export const schema: object = JSON.parse(readFileSync(schemaPath, 'utf8'));
 const ajv = new Ajv2020({
   allErrors: true,
   strict: true,
+  strictRequired: false,
   validateFormats: true,
 });
 addFormats(ajv);

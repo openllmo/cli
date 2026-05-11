@@ -220,6 +220,31 @@ describe('§5.2 S4 URL ownership enforcement', () => {
     assert.equal(r.tier, 'standard');
     assert.equal(r.failures.filter((f) => f.tier === 'standard').length, 0);
   });
+
+  it('v0.1.8 categories: schema.org primary/secondary URIs are third-party-allowed under S4', () => {
+    // Categories claim type added in v0.1.8. The primary and secondary fields
+    // hold schema.org Organization subtype URIs (external standards URIs the
+    // publisher attests to, not endpoints the publisher controls). collectClaimUrls
+    // classifies them as third-party-allowed, matching the treatment of
+    // pointer.url and the parallel logic in static/js/validator.js on llmo.org.
+    const doc = baseStandardDoc();
+    (doc.claims as Array<Record<string, unknown>>).push({
+      claim_id: 'cat',
+      type: 'categories',
+      statement: {
+        primary: 'https://schema.org/Restaurant',
+        secondary: ['https://schema.org/CafeOrCoffeeShop'],
+        naics: ['722511'],
+      },
+    });
+    const r = evaluateTier({ document: doc, now: CLOCK_INSIDE });
+    assert.equal(r.tier, 'standard', 'categories with off-domain schema.org URIs must not fail S4');
+    assert.equal(
+      r.failures.filter((f) => f.tier === 'standard' && /owned domain/.test(f.rule)).length,
+      0,
+      'no S4 ownership failure should fire on categories schema.org URIs',
+    );
+  });
 });
 
 describe('§5.3 X4 canonical_urls owned-domain enforcement', () => {

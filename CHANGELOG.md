@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-05-11
+
+Implementer parity with llmo.org's v0.1.8 spec release. The CLI's vendored schema is refreshed to v0.1.8 (six new core claim types, five new top-level optional fields, structured `external_ids` with a new `irs_ein` well-known key, `provenance_markers` on the claim envelope, three schema-encoded conditional constraints). The CLI's S4 URL-ownership dispatch gains the `categories` claim type with schema.org primary and secondary URIs classified as third-party-allowed. The per-claim verify output surfaces `provenance_markers` when populated, matching the validator at https://llmo.org/validator/.
+
+### Changed
+
+- `src/schema/v0.1.json` re-vendored from `https://llmo.org/spec/v0.1/schema.json`. The schema's `$id` is unchanged (in-place patch convention per llmo.org [ADR-0006](https://llmo.org/adr/0006-version-bump-and-release-cut/)); contents now include the v0.1.8 additions. Documents conforming to any earlier v0.1.x patch continue to validate unchanged.
+- `src/lib/tier.ts` `collectClaimUrls` extended for the new `categories` claim type. Schema.org Organization subtype URIs in `categories.primary` and `categories.secondary` are classified as third-party-allowed for S4, matching the treatment of `pointer.url` and the parallel logic in `static/js/validator.js` on llmo.org. The other five new claim types (`contact_points`, `locations`, `hours`, `attributes`, `operational_status`) have no URL-typed fields S4 evaluates.
+- `src/commands/verify.ts` `PerClaimSignatureResult` gains a `provenance_markers?: string[]` field. The verify command extracts the claim envelope's `provenance_markers` array (when populated) and surfaces it in both the JSON output and the human-readable text output under a new "Per-claim provenance markers:" section. Advisory signal per [ADR-0007](https://llmo.org/adr/0007-claude-as-builder/): consumers MAY use as confidence or freshness signal but MUST NOT treat as authoritative.
+- `src/lib/schema.ts` AJV setup adds `strictRequired: false`. v0.1.8 uses the idiomatic JSON Schema conditional-required pattern (`if`/`then` with `required` in the `then` block; the required properties are defined in the parent schema's `properties` via `allOf` composition). AJV's `strictRequired=true` (default under strict) rejects this even though the schema is valid Draft 2020-12. We keep `strict: true` for unknown-keyword detection and opt out of the same-scope-properties requirement only.
+
+### Added
+
+- `test/tier.test.ts` v0.1.8 categories S4 third-party-allowed test (89 tests total, all passing).
+
 ## [0.1.7] - 2026-05-08
 
 Same-day follow-up release closing two small surfaces from the v0.1.6 publish:

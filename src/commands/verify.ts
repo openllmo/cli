@@ -24,6 +24,11 @@ export interface PerClaimSignatureResult {
   verification: 'verified' | 'failed' | 'unverified' | null;
   error?: string;
   kid?: string;
+  // v0.1.8: surface provenance_markers (the builder agent's per-claim audit
+  // trail per ADR-0007) when populated. Advisory signal for downstream
+  // consumers; consumers MAY use as confidence or freshness signal but MUST
+  // NOT treat as authoritative.
+  provenance_markers?: string[];
 }
 
 export interface VerifyJsonResult {
@@ -214,12 +219,21 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
       const claimSig = claimObj.signature;
       const claimId = typeof claimObj.claim_id === 'string' ? claimObj.claim_id : null;
       const claimType = typeof claimObj.type === 'string' ? claimObj.type : null;
+      // v0.1.8: provenance_markers on the claim envelope (string array).
+      // Surface them in every per-claim push below when present.
+      const pmRaw = claimObj.provenance_markers;
+      const provenanceMarkers: string[] | undefined =
+        Array.isArray(pmRaw) && pmRaw.every((m) => typeof m === 'string') && pmRaw.length > 0
+          ? (pmRaw as string[]).slice()
+          : undefined;
+      const pmField = provenanceMarkers ? { provenance_markers: provenanceMarkers } : {};
 
       if (!claimSig || typeof claimSig !== 'object') {
         perClaimSignatures.push({
           index: i,
           claim_id: claimId,
           type: claimType,
+          ...pmField,
           presence: 'absent',
           verification: null,
         });
@@ -232,6 +246,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
           index: i,
           claim_id: claimId,
           type: claimType,
+          ...pmField,
           presence: 'present',
           verification: 'unverified',
           error: 'JWKS not available',
@@ -250,6 +265,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
           index: i,
           claim_id: claimId,
           type: claimType,
+          ...pmField,
           presence: 'present',
           verification: 'failed',
           error: 'protected header decode failed',
@@ -264,6 +280,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
           index: i,
           claim_id: claimId,
           type: claimType,
+          ...pmField,
           presence: 'present',
           verification: 'failed',
           error: 'protected header missing kid',
@@ -279,6 +296,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
           index: i,
           claim_id: claimId,
           type: claimType,
+          ...pmField,
           presence: 'present',
           verification: 'failed',
           error: `kid '${kid}' not in JWKS`,
@@ -294,6 +312,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
           index: i,
           claim_id: claimId,
           type: claimType,
+          ...pmField,
           presence: 'present',
           verification: 'verified',
           kid,
@@ -304,6 +323,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
           index: i,
           claim_id: claimId,
           type: claimType,
+          ...pmField,
           presence: 'present',
           verification: 'failed',
           error: (e as Error).message,
@@ -458,6 +478,20 @@ function printHuman(outcome: VerifyOutcome, opts: VerifyOpts): void {
         statusStr = 'not evaluated';
       }
       process.stdout.write(`  claim ${lbl} (${pc.type ?? 'unknown'}): ${statusStr}\n`);
+    }
+  }
+
+  // v0.1.8: surface provenance_markers from the claim envelope. Advisory
+  // signal per ADR-0007; not a tier rule. Listed separately from signatures
+  // so the two concerns stay distinct.
+  const claimsWithMarkers = perClaim.filter(
+    (pc) => Array.isArray(pc.provenance_markers) && pc.provenance_markers.length > 0
+  );
+  if (claimsWithMarkers.length > 0) {
+    process.stdout.write(`Per-claim provenance markers:\n`);
+    for (const pc of claimsWithMarkers) {
+      const lbl = pc.claim_id ? `"${pc.claim_id}"` : `index ${pc.index}`;
+      process.stdout.write(`  claim ${lbl} (${pc.type ?? 'unknown'}): ${pc.provenance_markers!.join(', ')}\n`);
     }
   }
 
