@@ -9,3 +9,4 @@ llmo-private-*.pem
 coverage/
 .nyc_output/
 TASKS/
+llmo-*.tgz

@@ -1,7 +1,7 @@
 {
   "name": "llmo",
-  "version": "0.1.8",
-  "description": "Reference CLI for the LLMO protocol. Sign and verify llmo.json documents per the v0.1 specification at https://llmo.org/spec/v0.1.",
+  "version": "0.1.9",
+  "description": "Reference CLI for the LLMO protocol. Sign and verify llmo.json documents per the v0.1 specification at https://llmo.org/spec/v0.1. Bundles the /llmo Claude Code skill for guided publishing.",
   "type": "module",
   "bin": {
     "llmo": "./dist/cli.js"
@@ -9,6 +9,8 @@
   "files": [
     "dist/",
     "src/schema/",
+    "skill/",
+    "scripts/postinstall.js",
     "README.md",
     "LICENSE"
   ],
@@ -19,6 +21,7 @@
     "build": "tsc && node scripts/postbuild.js",
     "test": "node --test --import tsx ./test/*.test.ts",
     "lint": "tsc --noEmit",
+    "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "npm run build && npm test"
   },
   "keywords": [
