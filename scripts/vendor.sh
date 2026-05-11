@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Re-vendor the LLMO v0.1 schema and test-vector fixtures from llmo.org.
-# Prints a unified diff for any vendored file that would change, then
-# writes the new content. Run from anywhere; resolves repo root from
-# script location.
+# Re-vendor the LLMO v0.1 schema, test-vector fixtures, and /llmo Claude
+# Code skill files from llmo.org. Prints a unified diff for any vendored
+# file that would change, then writes the new content. Run from anywhere;
+# resolves repo root from script location.
 #
 # Usage: scripts/vendor.sh
 # Exits 0 always. Drift is shown via stdout diffs, not exit codes; CI
@@ -14,6 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$SCRIPT_DIR")"
 UPSTREAM="https://llmo.org/spec/v0.1"
+SKILL_UPSTREAM="https://raw.githubusercontent.com/openllmo/llmo.org/main/.claude/skills/llmo"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -62,6 +63,21 @@ diff_and_replace "src/schema/v0.1.json" "$TMP/schema-local.json"
 for fix in unsigned-minimal unsigned-standard signed-strict signed-strict-key signed-strict-payload; do
   curl -fsS "$UPSTREAM/test-vectors/${fix}.json" -o "$TMP/${fix}.json"
   diff_and_replace "test/fixtures/${fix}.json" "$TMP/${fix}.json"
+done
+
+# /llmo Claude Code skill: fetch verbatim. These ship inside the npm
+# package and are copied to ~/.claude/skills/llmo/ by the postinstall
+# hook so `/llmo` becomes available in Claude Code immediately after
+# `npm install -g llmo`.
+echo
+echo "Vendoring skill files from $SKILL_UPSTREAM"
+for f in SKILL.md README.md; do
+  curl -fsS "$SKILL_UPSTREAM/${f}" -o "$TMP/skill-${f}"
+  diff_and_replace "skill/${f}" "$TMP/skill-${f}"
+done
+for phase in 01-greet 02-interview 03-derive 04-review 05-verify-contacts 06-dns-corroboration 07-keygen 08-sign 09-deploy 10-validate; do
+  curl -fsS "$SKILL_UPSTREAM/phases/${phase}.md" -o "$TMP/phase-${phase}.md"
+  diff_and_replace "skill/phases/${phase}.md" "$TMP/phase-${phase}.md"
 done
 
 echo

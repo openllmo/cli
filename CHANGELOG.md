@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-05-11
+
+Bundles the `/llmo` Claude Code skill into the npm package. After
+`npm install -g llmo`, typing `/llmo` in any Claude Code session
+launches a guided publish wizard (TurboTax-style) that walks
+non-developer publishers through the full lifecycle: interview, derive
+claims from public sources, review, verify domain control via DNS TXT,
+optional `dns_corroboration`, keygen + custody, sign, deploy, and live
+validation. No protocol or schema changes; spec parity remains at
+v0.1.8.
+
+### Added
+
+- `skill/` directory containing the `/llmo` Claude Code skill, vendored
+  from `https://raw.githubusercontent.com/openllmo/llmo.org/main/.claude/skills/llmo/`
+  via `scripts/vendor.sh`. The skill comprises `SKILL.md` (orchestrator),
+  `README.md` (install + invocation), and ten phase files under
+  `phases/` (01-greet through 10-validate). ~900 lines total.
+- `scripts/postinstall.js`: copies the bundled skill into
+  `~/.claude/skills/llmo/` so `/llmo` is available in Claude Code
+  immediately after install. Idempotent on upgrades (overwrites with the
+  version shipped in the release). Non-fatal: errors log a warning and
+  the install proceeds. Honors `LLMO_SKILL_DIR` env var for testing.
+- `package.json` `files` extended to include `skill/` and the
+  postinstall script.
+- `scripts/vendor.sh` extended to fetch the skill files from
+  `raw.githubusercontent.com/openllmo/llmo.org/main` alongside the
+  schema and test fixtures. Re-running `scripts/vendor.sh` refreshes the
+  bundled skill the same way it refreshes the schema; the existing
+  vendor-drift CI job covers both.
+
 ## [0.1.8] - 2026-05-11
 
 Implementer parity with llmo.org's v0.1.8 spec release. The CLI's vendored schema is refreshed to v0.1.8 (six new core claim types, five new top-level optional fields, structured `external_ids` with a new `irs_ein` well-known key, `provenance_markers` on the claim envelope, three schema-encoded conditional constraints). The CLI's S4 URL-ownership dispatch gains the `categories` claim type with schema.org primary and secondary URIs classified as third-party-allowed. The per-claim verify output surfaces `provenance_markers` when populated, matching the validator at https://llmo.org/validator/.
