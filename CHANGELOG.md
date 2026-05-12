@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-05-12
+
+Implementer parity with llmo.org's [LIP-5](https://llmo.org/spec/lips/lip-0005/) release (Final, accepted under editor authorship privilege during the pre-announcement Goldilocks period). The CLI's vendored schema is refreshed to include the new required `category` discriminator on `disavowal.disavowed[]` entries, and the tier evaluator now binds rule S6 against the closed two-value enum (`self_statement` or `impersonation_defense`). Closes the §5.2 S6 enforcement gap deferred since v0.1.5.
+
+### Added
+
+- **S6 binding enforcement in `src/lib/tier.ts`** `evaluateTier()`. Every entry in a `disavowal` claim's `statement.disavowed[]` array MUST carry a `category` field whose value is `self_statement` or `impersonation_defense`. Entries missing the field or with a value outside the enum produce a Standard-tier failure with rule `disavowal entries carry category in {self_statement, impersonation_defense}` and message prefix `s6_disavowal_out_of_scope:`. Documents whose disavowal entries pass M3 schema (i.e. `category` is in the enum at the schema level) trivially pass S6 too; the in-tier check is defense-in-depth alongside the schema's closed-enum constraint.
+
+### Changed
+
+- **`src/schema/v0.1.json` re-vendored** from `https://llmo.org/spec/v0.1/schema.json`. `statement_disavowal.disavowed[]` items now require `category` (closed enum); other claim type shapes are unchanged. The schema's `$id` is unchanged (in-place v0.1.x patch convention per llmo.org [ADR-0006](https://llmo.org/adr/0006-version-bump-and-release-cut/)).
+- **`test/tier.test.ts`** existing S4 test that constructed a disavowal claim with third-party `url` now includes a `category` field on the entry. A new `§5.2 S6 disavowal category enforcement (LIP-5)` describe block adds four tests: positive (valid categories pass), negative (no category fails), negative (out-of-enum category fails), and the no-disavowal-claim case (S6 does not fire). 105 tests total, all passing.
+- **`test/verify.test.ts`** disavowal test fixtures (7 occurrences) updated with `category: "self_statement"` on the synthetic disavowed entries so the per-claim signature tests continue to construct schema-valid documents.
+
+### Notes
+
+- Pre-LIP-5 documents with a disavowal claim lacking `category` now fail M3 schema validation and evaluate as `tier: invalid`. This is intentional per LIP-5; pre-launch the only affected document is the steward's own at llmo.org, updated in the same PR that landed LIP-5.
+- The S6 enforcement in `evaluateTier()` continues to run even when M3 fires first; this is defense-in-depth and ensures correctness for any future ajv configuration that permits the field through (e.g. an implementation that disables `additionalProperties: false` enforcement).
+
 ## [0.1.12] - 2026-05-12
 
 Adds the consumer-side LIP-4 §3.4 **X7** check to `llmo verify`: query a conforming Key Transparency registry for entries under the document's primary_domain, verify each entry's inline-signed JWS, and check whether any thumbprint matches the publisher's deployed JWKS signing key. **Advisory in v0.1.x** — surfaced in JSON output as `ktRegistryInclusion` and in human-readable output as a labeled line, but does not downgrade tier. Tier-determining enforcement begins after LIP-4 transitions Final and its 90-day grace period elapses.

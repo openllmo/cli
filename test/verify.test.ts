@@ -292,7 +292,7 @@ const STRICT_BASE_CLAIMS = [
 describe('verify: per-claim signature verification (commit D, X6 per §5.3)', () => {
   it('verifies a per-claim signature when valid (X6 PASS)', async () => {
     const { jwk, kid, privateKey } = await makeKeyForAlg('ES256');
-    const baseClaim = { claim_id: 'test-disavowal', type: 'disavowal', statement: { disavowed: [{ what: 'test', detail: 'd' }] } };
+    const baseClaim = { claim_id: 'test-disavowal', type: 'disavowal', statement: { disavowed: [{ what: 'test', detail: 'd', category: 'self_statement' }] } };
     const signedClaim = await signClaim(baseClaim, privateKey, kid, 'ES256');
     const doc = strictDoc({ claims: [...STRICT_BASE_CLAIMS, signedClaim] });
     const docPath = join(workDir, 'pcs-pass.json');
@@ -310,7 +310,7 @@ describe('verify: per-claim signature verification (commit D, X6 per §5.3)', ()
 
   it('reports failed when per-claim signature is tampered (X6 FAIL)', async () => {
     const { jwk, kid, privateKey } = await makeKeyForAlg('ES256');
-    const baseClaim = { claim_id: 'test-disavowal', type: 'disavowal', statement: { disavowed: [{ what: 'test', detail: 'd' }] } };
+    const baseClaim = { claim_id: 'test-disavowal', type: 'disavowal', statement: { disavowed: [{ what: 'test', detail: 'd', category: 'self_statement' }] } };
     const signedClaim = await signClaim(baseClaim, privateKey, kid, 'ES256');
     // Mutate the claim payload after signing.
     (signedClaim.statement as { disavowed: Array<{ what: string }> }).disavowed[0].what = 'mutated';
@@ -330,7 +330,7 @@ describe('verify: per-claim signature verification (commit D, X6 per §5.3)', ()
   it('reports failed when per-claim kid not in JWKS', async () => {
     const keyA = await makeKeyForAlg('ES256');
     const keyB = await makeKeyForAlg('ES256');
-    const baseClaim = { claim_id: 'orphan-kid', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd' }] } };
+    const baseClaim = { claim_id: 'orphan-kid', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd', category: 'self_statement' }] } };
     // Sign with key A, but JWKS only contains key B.
     const signedClaim = await signClaim(baseClaim, keyA.privateKey, keyA.kid, 'ES256');
     const doc = strictDoc({ claims: [...STRICT_BASE_CLAIMS, signedClaim] });
@@ -351,7 +351,7 @@ describe('verify: per-claim signature verification (commit D, X6 per §5.3)', ()
     const signedClaim = {
       claim_id: 'bad-header',
       type: 'disavowal',
-      statement: { disavowed: [{ what: 'x', detail: 'd' }] },
+      statement: { disavowed: [{ what: 'x', detail: 'd', category: 'self_statement' }] },
       signature: {
         // Decodes to bytes but not to valid JSON.
         protected: 'bm90LWpzb24',
@@ -372,7 +372,7 @@ describe('verify: per-claim signature verification (commit D, X6 per §5.3)', ()
 
   it('handles document-level + per-claim both pass', async () => {
     const { jwk, kid, pem, privateKey } = await makeKeyForAlg('ES256');
-    const baseClaim = { claim_id: 'test-disavowal', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd' }] } };
+    const baseClaim = { claim_id: 'test-disavowal', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd', category: 'self_statement' }] } };
     const signedClaim = await signClaim(baseClaim, privateKey, kid, 'ES256');
     const doc = strictDoc({ claims: [...STRICT_BASE_CLAIMS, signedClaim] });
     const docPath = join(workDir, 'pcs-both-pass.json');
@@ -394,7 +394,7 @@ describe('verify: per-claim signature verification (commit D, X6 per §5.3)', ()
   it('reports tier downgrade when document-level passes but per-claim fails', async () => {
     const keyA = await makeKeyForAlg('ES256');
     const keyB = await makeKeyForAlg('ES256');
-    const baseClaim = { claim_id: 'wrong-key-claim', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd' }] } };
+    const baseClaim = { claim_id: 'wrong-key-claim', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd', category: 'self_statement' }] } };
     // Sign claim with key B, but JWKS contains only key A (which signs the document).
     const signedClaim = await signClaim(baseClaim, keyB.privateKey, keyB.kid, 'ES256');
     const doc = strictDoc({ claims: [...STRICT_BASE_CLAIMS, signedClaim] });
@@ -435,7 +435,7 @@ describe('verify: per-claim signature verification (commit D, X6 per §5.3)', ()
 
   it('verifies ES384 per-claim signature', async () => {
     const { jwk, kid, privateKey } = await makeKeyForAlg('ES384');
-    const baseClaim = { claim_id: 'es384-claim', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd' }] } };
+    const baseClaim = { claim_id: 'es384-claim', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd', category: 'self_statement' }] } };
     const signedClaim = await signClaim(baseClaim, privateKey, kid, 'ES384');
     const doc = strictDoc({ claims: [...STRICT_BASE_CLAIMS, signedClaim] });
     const docPath = join(workDir, 'pcs-es384.json');
@@ -451,7 +451,7 @@ describe('verify: per-claim signature verification (commit D, X6 per §5.3)', ()
 
   it('verifies EdDSA per-claim signature', async () => {
     const { jwk, kid, privateKey } = await makeKeyForAlg('EdDSA');
-    const baseClaim = { claim_id: 'eddsa-claim', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd' }] } };
+    const baseClaim = { claim_id: 'eddsa-claim', type: 'disavowal', statement: { disavowed: [{ what: 'x', detail: 'd', category: 'self_statement' }] } };
     const signedClaim = await signClaim(baseClaim, privateKey, kid, 'EdDSA');
     const doc = strictDoc({ claims: [...STRICT_BASE_CLAIMS, signedClaim] });
     const docPath = join(workDir, 'pcs-eddsa.json');
