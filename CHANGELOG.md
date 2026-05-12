@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-05-12
+
+Adds `llmo register`, the publisher-facing CLI for submitting a Key Transparency entry per [LIP-4](https://llmo.org/spec/lips/lip-0004/). The subcommand constructs a compact JWS per LIP-4 §3.2 (inline public JWK in the protected header, SHA-384 thumbprint in the payload, RFC 7638 canonicalization), POSTs it to the configured registry endpoint, and writes the signed receipt to a local file.
+
+### Added
+
+- **`llmo register`**: new subcommand. Required flags: `--key <path>` (private JWK file), `--domain <primary_domain>`, `--doc-id <document_id>`. Optional flags: `--doc-url <url>` (defaults to `https://<domain>/.well-known/llmo.json`), `--registry <url>` (defaults to `https://llmo.org/kt/v1`), `--out <path>` (defaults to `./llmo-kt-receipt-<timestamp>.json`). Implementation at `src/commands/register.ts`.
+- **6 new tests** under `test/register.test.ts` exercising the JWS construction, thumbprint computation, public-key derivation (with explicit assertion that no private material leaks into the inline JWK), receipt serialization, domain normalization, and error propagation when the registry returns a 4xx. 95 tests total, all passing.
+
+### Notes
+
+- Per LIP-4 §8.1 the subcommand is informative (not yet normative since LIP-4 is in Draft). Existing v0.1.10 consumers continue to work unchanged; the X7 strict-tier rule (LIP-4 §3.4) won't be enforced by `llmo verify` until a future release after LIP-4 transitions Final.
+- The private JWK file MUST include a `d` field. Files that look like public JWKs are rejected with a clear error pointing at the input file. The subcommand never reads or transmits the `d` field beyond loading it into memory for signing; the protected header's inline JWK is built by selective whitelist (kty, crv, x, y, n, e, kid, alg, use, key_ops) so future jose JWK fields cannot accidentally exfiltrate private material through this code path.
+
 ## [0.1.10] - 2026-05-11
 
 Security-review hardening of v0.1.9's postinstall hook and skill
