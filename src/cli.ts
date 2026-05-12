@@ -8,6 +8,7 @@ import { keygenCommand } from './commands/keygen.js';
 import { signCommand } from './commands/sign.js';
 import { verifyCommand } from './commands/verify.js';
 import { doctorCommand } from './commands/doctor.js';
+import { registerCommand } from './commands/register.js';
 
 // Single source of truth for the CLI version. package.json sits one level
 // above this file in both layouts: src/cli.ts -> ../package.json (dev/test
@@ -30,5 +31,6 @@ program.addCommand(keygenCommand());
 program.addCommand(signCommand());
 program.addCommand(verifyCommand());
 program.addCommand(doctorCommand());
+program.addCommand(registerCommand());
 
 await program.parseAsync(process.argv);
