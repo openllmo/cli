@@ -6,7 +6,10 @@ import { schema as schemaJson, validate, formatErrors } from '../lib/schema.js';
 import { verify as verifyJws, type DocumentSignature } from '../lib/jws.js';
 import { evaluateTier, type Tier, type TierFailure } from '../lib/tier.js';
 import { fetchJwks, parseJwksFromText, findKeyByKid, type Jwks } from '../lib/jwks.js';
+import { evaluateX7, type X7Result } from '../lib/kt.js';
 import { LlmoError, type SchemaIssue } from '../lib/errors.js';
+
+const DEFAULT_KT_REGISTRY = 'https://llmo.org/kt/v1';
 
 interface VerifyOpts {
   jwks?: string;
@@ -14,6 +17,8 @@ interface VerifyOpts {
   ignoreExpiry?: boolean;
   json?: boolean;
   now?: string;
+  noKtCheck?: boolean;
+  registry?: string;
 }
 
 export interface PerClaimSignatureResult {
@@ -42,6 +47,8 @@ export interface VerifyJsonResult {
   jwksResolved: boolean;
   kidMatched: boolean;
   corsHeaderPresent?: boolean;
+  /** LIP-4 §3.4 X7 — KT registry inclusion. Advisory in v0.1.x. */
+  ktRegistryInclusion?: X7Result;
 }
 
 export interface VerifyOutcome {
@@ -61,6 +68,8 @@ export function verifyCommand(): Command {
     .option('--ignore-expiry', 'suppress expiry flag in human output (JSON output always reports it)')
     .option('--json', 'emit structured JSON output instead of human-readable text')
     .option('--now <iso8601>', 'override current time as RFC 3339 / ISO 8601 timestamp')
+    .option('--no-kt-check', 'skip the LIP-4 §3.4 X7 KT registry inclusion check (advisory in v0.1.x)')
+    .option('--registry <url>', `KT registry base URL (default: ${DEFAULT_KT_REGISTRY})`, DEFAULT_KT_REGISTRY)
     .action(async (target: string, opts: VerifyOpts) => {
       const outcome = await runVerify(target, opts);
       if (opts.json) {
@@ -127,6 +136,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
   let kidMatched = false;
   let jwksMaxAge: number | undefined;
   let signatureError: string | undefined;
+  let docSigningKey: JWK | undefined;
 
   // JWKS fetch is hoisted: needed if EITHER the document or any claim has a signature.
   const docHasSig = typeof doc.signature === 'object' && doc.signature !== null;
@@ -176,6 +186,7 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
         const matchingJwk: JWK | undefined = findKeyByKid(jwks, kid);
         if (matchingJwk) {
           kidMatched = true;
+          docSigningKey = matchingJwk;
           try {
             await verifyJws({ target: doc, signature: sig, publicKey: matchingJwk });
             signatureValid = true;
@@ -371,6 +382,27 @@ export async function runVerify(target: string, opts: VerifyOpts): Promise<Verif
     result.corsHeaderPresent = corsHeaderPresent;
   }
 
+  // LIP-4 §3.4 X7 — KT registry inclusion. Advisory in v0.1.x: the
+  // result surfaces in the JSON output and the human-readable report
+  // but does not on its own downgrade tier. Skipped automatically if
+  // we don't have the prerequisites (URL mode, signature located, JWKS
+  // resolved) or if the operator passed --no-kt-check.
+  if (!opts.noKtCheck && servingDomain && docSigningKey) {
+    try {
+      const ktResult = await evaluateX7({
+        domain: servingDomain,
+        signingKey: docSigningKey,
+        registry: opts.registry ?? DEFAULT_KT_REGISTRY,
+      });
+      result.ktRegistryInclusion = ktResult;
+    } catch (e) {
+      result.ktRegistryInclusion = {
+        status: 'skip',
+        note: `X7 evaluation threw: ${(e as Error).message}`,
+      };
+    }
+  }
+
   // Exit code.
   let exitCode = 0;
   if (!schemaOk) {
@@ -501,6 +533,15 @@ function printHuman(outcome: VerifyOutcome, opts: VerifyOpts): void {
     } else {
       process.stdout.write(`Freshness: in window\n`);
     }
+  }
+
+  if (result.ktRegistryInclusion) {
+    const kt = result.ktRegistryInclusion;
+    let label: string;
+    if (kt.status === 'pass') label = colour('registered', '32');
+    else if (kt.status === 'fail') label = colour('UNLOGGED', '33');
+    else label = colour('unevaluated', '33');
+    process.stdout.write(`KT registry (advisory, LIP-4 §3.4 X7): ${label} — ${kt.note}\n`);
   }
   if (result.schemaErrors.length > 0) {
     process.stdout.write('\nSchema errors:\n');

@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-05-12
+
+Adds the consumer-side LIP-4 §3.4 **X7** check to `llmo verify`: query a conforming Key Transparency registry for entries under the document's primary_domain, verify each entry's inline-signed JWS, and check whether any thumbprint matches the publisher's deployed JWKS signing key. **Advisory in v0.1.x** — surfaced in JSON output as `ktRegistryInclusion` and in human-readable output as a labeled line, but does not downgrade tier. Tier-determining enforcement begins after LIP-4 transitions Final and its 90-day grace period elapses.
+
+### Added
+
+- **`src/lib/kt.ts`** — `evaluateX7()` library function implementing the consumer flow:
+  1. Compute SHA-384 thumbprint (RFC 7638 + LIP-4 §3.1) of the publisher's deployed signing key.
+  2. Query `GET /kt/v1/entries?domain=<domain>` on the configured registry.
+  3. For each returned entry: verify the compact JWS using the inline JWK from the protected header (RFC 7515 §4.1.3 per LIP-4 §3.2), confirm `payload.jwk_thumbprint` equals SHA-384(JCS(inline JWK)), and check whether the thumbprint matches the publisher's deployed key.
+  4. Return `{status: pass | fail | skip, note, entries_returned, entries_verified}`.
+- **`llmo verify` flags**:
+  - `--no-kt-check` skips the X7 check entirely.
+  - `--registry <url>` overrides the default registry (`https://llmo.org/kt/v1`).
+- **6 new tests** in `test/kt.test.ts`: PASS case, FAIL no-entries, FAIL no-match, SKIP on registry 5xx, SKIP on network error, tampered-entry rejection. 101 tests total, all passing.
+
+### Notes
+
+- The check runs only in URL mode (URL or bare-domain target) where the publisher's primary_domain is known. File-mode invocations skip X7 silently.
+- The check runs only when the document's signing key was successfully located in the publisher's JWKS. Documents whose signature is missing, malformed, or whose kid is not in the JWKS skip X7 (the upstream X5 check has already reported the deeper issue).
+- The registry query is independent of the JOSE library's `jose` package — `evaluateX7()` uses `jose`'s `compactVerify` + `calculateJwkThumbprint` directly. No new runtime dependencies.
+
 ## [0.1.11] - 2026-05-12
 
 Adds `llmo register`, the publisher-facing CLI for submitting a Key Transparency entry per [LIP-4](https://llmo.org/spec/lips/lip-0004/). The subcommand constructs a compact JWS per LIP-4 §3.2 (inline public JWK in the protected header, SHA-384 thumbprint in the payload, RFC 7638 canonicalization), POSTs it to the configured registry endpoint, and writes the signed receipt to a local file.
