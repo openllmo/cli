@@ -146,7 +146,7 @@ describe('§5.2 S4 URL ownership enforcement', () => {
       {
         claim_id: 'd',
         type: 'disavowal',
-        statement: { disavowed: [{ url: 'https://impostor.example.net/fake' }] },
+        statement: { disavowed: [{ what: 'impersonator', detail: 'fake', category: 'impersonation_defense', url: 'https://impostor.example.net/fake' }] },
       },
       // personnel.spokespeople[].verification: third-party-allowed (e.g. github.com)
       {
@@ -243,6 +243,87 @@ describe('§5.2 S4 URL ownership enforcement', () => {
       r.failures.filter((f) => f.tier === 'standard' && /owned domain/.test(f.rule)).length,
       0,
       'no S4 ownership failure should fire on categories schema.org URIs',
+    );
+  });
+});
+
+describe('§5.2 S6 disavowal category enforcement (LIP-5)', () => {
+  function baseStandardDoc(): Record<string, unknown> {
+    return {
+      llmo_version: '0.1',
+      document_id: 'test-s6',
+      valid_from: '2026-05-01T00:00:00Z',
+      valid_until: '2026-07-01T00:00:00Z',
+      entity: { name: 'JungleCat', primary_domain: 'junglecat.example.com' },
+      claims: [
+        { claim_id: 'cu', type: 'canonical_urls', statement: { homepage: 'https://junglecat.example.com/' } },
+        { claim_id: 'oc', type: 'official_channels', statement: { email_domains: ['junglecat.example.com'] } },
+      ],
+    };
+  }
+
+  it('S6 passes when disavowal entries carry category in {self_statement, impersonation_defense}', () => {
+    const doc = baseStandardDoc();
+    (doc.claims as Array<Record<string, unknown>>).push({
+      claim_id: 'd',
+      type: 'disavowal',
+      statement: {
+        disavowed: [
+          { what: 'prior_position', detail: 'd1', category: 'self_statement' },
+          { what: 'unaffiliated_domain', detail: 'd2', category: 'impersonation_defense' },
+        ],
+      },
+    });
+    const r = evaluateTier({ document: doc, now: CLOCK_INSIDE });
+    assert.equal(r.tier, 'standard', 'doc with valid disavowal categories must reach Standard');
+    assert.equal(
+      r.failures.filter((f) => /disavowal entries carry category/.test(f.rule)).length,
+      0,
+      'no S6 failure should fire when categories are valid',
+    );
+  });
+
+  it('S6 fails when a disavowal entry has no category (downgrades to Minimal)', () => {
+    const doc = baseStandardDoc();
+    (doc.claims as Array<Record<string, unknown>>).push({
+      claim_id: 'd',
+      type: 'disavowal',
+      statement: {
+        disavowed: [{ what: 'prior_position', detail: 'd1' }],
+      },
+    });
+    const r = evaluateTier({ document: doc, now: CLOCK_INSIDE });
+    assert.equal(r.tier, 'minimal', 'doc with category-missing disavowal entry must downgrade to Minimal');
+    const s6Failure = r.failures.find((f) => /disavowal entries carry category/.test(f.rule));
+    assert.ok(s6Failure, 'expected an S6 failure');
+    assert.match(s6Failure.message, /s6_disavowal_out_of_scope/);
+    assert.match(s6Failure.message, /no 'category'/);
+  });
+
+  it('S6 fails when category is set to a value outside the enum', () => {
+    const doc = baseStandardDoc();
+    (doc.claims as Array<Record<string, unknown>>).push({
+      claim_id: 'd',
+      type: 'disavowal',
+      statement: {
+        disavowed: [{ what: 'competitor_product', detail: 'd1', category: 'third_party_assertion' }],
+      },
+    });
+    const r = evaluateTier({ document: doc, now: CLOCK_INSIDE });
+    assert.equal(r.tier, 'minimal', 'doc with out-of-enum category must downgrade to Minimal');
+    const s6Failure = r.failures.find((f) => /disavowal entries carry category/.test(f.rule));
+    assert.ok(s6Failure, 'expected an S6 failure');
+    assert.match(s6Failure.message, /third_party_assertion/);
+    assert.match(s6Failure.message, /out of scope at Standard tier/);
+  });
+
+  it('S6 does not fire when document has no disavowal claims', () => {
+    const doc = baseStandardDoc();
+    const r = evaluateTier({ document: doc, now: CLOCK_INSIDE });
+    assert.equal(r.tier, 'standard');
+    assert.equal(
+      r.failures.filter((f) => /disavowal entries carry category/.test(f.rule)).length,
+      0,
     );
   });
 });

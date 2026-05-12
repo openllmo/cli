@@ -164,6 +164,46 @@ export function evaluateTier(input: TierInput): TierResult {
         message: s4Issues.join('; '),
       });
     }
+
+    // §5.2 S6 binding enforcement per LIP-5 (v0.1.9+). Every entry in
+    // a disavowal claim's statement.disavowed[] MUST carry a
+    // category field with value "self_statement" or
+    // "impersonation_defense". The supersedes half of S6 is
+    // machine-checked from owned URLs via S4 above; no separate
+    // check needed here.
+    const S6_ALLOWED = new Set(['self_statement', 'impersonation_defense']);
+    const s6Issues: string[] = [];
+    (claims as Array<Record<string, unknown>>).forEach((claim, i) => {
+      if (claim?.type !== 'disavowal') return;
+      const statement = claim.statement as Record<string, unknown> | undefined;
+      const disavowed = Array.isArray(statement?.disavowed) ? statement.disavowed : [];
+      (disavowed as Array<unknown>).forEach((entryUnknown, j) => {
+        if (typeof entryUnknown !== 'object' || entryUnknown === null) {
+          s6Issues.push(`claim[${i}].disavowed[${j}] is not an object`);
+          return;
+        }
+        const entry = entryUnknown as Record<string, unknown>;
+        if (typeof entry.category !== 'string') {
+          s6Issues.push(
+            `claim[${i}].disavowed[${j}] has no 'category' (LIP-5 requires self_statement or impersonation_defense)`,
+          );
+          return;
+        }
+        if (!S6_ALLOWED.has(entry.category)) {
+          s6Issues.push(
+            `claim[${i}].disavowed[${j}].category is '${entry.category}', out of scope at Standard tier (allowed: self_statement, impersonation_defense)`,
+          );
+        }
+      });
+    });
+    if (s6Issues.length > 0) {
+      failures.push({
+        tier: 'standard',
+        rule: 'disavowal entries carry category in {self_statement, impersonation_defense}',
+        section: '§5.2, LIP-5',
+        message: `s6_disavowal_out_of_scope: ${s6Issues.join('; ')}`,
+      });
+    }
   }
 
   // §5.3 Strict
