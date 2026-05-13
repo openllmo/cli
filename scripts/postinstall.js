@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-// Postinstall: copy the bundled /llmo Claude Code skill from the npm
-// package into ~/.claude/skills/llmo/ so that typing `/llmo` inside
-// Claude Code triggers the publisher wizard without any extra setup.
+// Postinstall: copy the bundled /llmo skill from the npm package into the
+// per-user skill directories of every supported agent so that typing `/llmo`
+// inside the agent triggers the publisher wizard without any extra setup.
+//
+// Default targets (v0.1.14):
+//   - ~/.claude/skills/llmo/   — Claude Code
+//   - ~/.agents/skills/llmo/   — OpenAI Codex and GitHub Copilot (shared
+//                                ~/.agents convention per their respective
+//                                skill docs)
 //
 // Hardening (v0.1.10, per the 2026-05-11 security review):
 //   - cpSync runs with `dereference: false` + `verbatimSymlinks: false`,
@@ -18,6 +24,10 @@
 //     `sudo npm install -g llmo` does not write skill files into the
 //     root user's home directory by surprise. End users running
 //     unprivileged installs are unaffected.
+//   - LLMO_SKILL_DIR, when set, overrides BOTH defaults and writes to
+//     a single target (preserves the legacy single-target test fixture
+//     contract). To suppress writes to one default in production, set
+//     LLMO_SKILL_DIR explicitly.
 //
 // Idempotent on subsequent installs (overwrites with the version that
 // shipped with this CLI release). Non-fatal: any error is logged as a
@@ -31,11 +41,15 @@ import { homedir } from 'node:os';
 const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, '..', 'skill');
 const home = homedir();
-const defaultTarget = resolve(home, '.claude', 'skills', 'llmo');
+const claudeTarget = resolve(home, '.claude', 'skills', 'llmo');
+const agentsTarget = resolve(home, '.agents', 'skills', 'llmo');
+const defaultTargets = [
+  { path: claudeTarget, label: 'Claude Code' },
+  { path: agentsTarget, label: 'Codex, GitHub Copilot' },
+];
 
 function normalizeAndConfine(raw) {
   const absolute = resolve(raw);
-  if (absolute === defaultTarget) return absolute;
   const homePrefix = home.endsWith(sep) ? home : home + sep;
   if (absolute === home || absolute.startsWith(homePrefix)) return absolute;
   if (process.env.LLMO_ALLOW_OUT_OF_HOME === '1') return absolute;
@@ -56,6 +70,17 @@ function rejectSymlinks(dir) {
   }
 }
 
+function installTo(target) {
+  mkdirSync(target, { recursive: true });
+  cpSync(source, target, {
+    recursive: true,
+    dereference: false,
+    verbatimSymlinks: false,
+    errorOnExist: false,
+    force: true,
+  });
+}
+
 try {
   if (!existsSync(source)) {
     // Skill files aren't bundled in this install (e.g. dev checkout
@@ -73,23 +98,17 @@ try {
     process.exit(0);
   }
 
-  const target = process.env.LLMO_SKILL_DIR
-    ? normalizeAndConfine(process.env.LLMO_SKILL_DIR)
-    : defaultTarget;
-
   rejectSymlinks(source);
 
-  mkdirSync(target, { recursive: true });
-  cpSync(source, target, {
-    recursive: true,
-    dereference: false,
-    verbatimSymlinks: false,
-    errorOnExist: false,
-    force: true,
-  });
+  const targets = process.env.LLMO_SKILL_DIR
+    ? [{ path: normalizeAndConfine(process.env.LLMO_SKILL_DIR), label: 'override' }]
+    : defaultTargets;
 
-  console.log(`llmo: /llmo Claude Code skill installed at ${target}`);
-  console.log(`llmo: open Claude Code and type /llmo to start the publish wizard.`);
+  for (const { path, label } of targets) {
+    installTo(path);
+    console.log(`llmo: /llmo skill installed at ${path} (${label})`);
+  }
+  console.log(`llmo: open your agent (Claude Code, Codex, or GitHub Copilot) and type /llmo to start the publish wizard.`);
 } catch (err) {
   console.warn(`llmo: skill install skipped (${err && err.message ? err.message : err})`);
   process.exit(0);

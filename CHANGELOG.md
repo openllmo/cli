@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-05-13
+
+Extends the bundled `/llmo` skill to **OpenAI Codex** and **GitHub Copilot** in addition to Claude Code. A single `npm install -g llmo` now installs the publisher wizard into every supported agent's per-user skill directory. The publisher's developer experience collapses to three steps: install the npm package, open whichever agent they have, type `/llmo`.
+
+### Added
+
+- **Dual-target postinstall in `scripts/postinstall.js`**. The default install now writes the bundled skill to both `~/.claude/skills/llmo/` (Claude Code) and `~/.agents/skills/llmo/` (the shared convention recognized by OpenAI Codex and GitHub Copilot per their respective skill docs). Trees are byte-identical at both targets; the orchestrator's `SKILL.md` and the ten phase files in `phases/` are read in-place by whichever agent the developer invokes `/llmo` from.
+- **Explicit phase-loop wording in `skill/SKILL.md`**. The Workflow section now tells the agent to read each `phases/<NN>-<name>.md` file from disk before executing the phase, rather than summarizing from the SKILL.md overview. This is a no-op for Claude Code (which auto-loads phase files via skill conventions) and load-bearing for Codex's single-file orchestration model (which needs the explicit "read the referenced file" instruction to flow through the same phase recipes).
+
+### Changed
+
+- **`LLMO_SKILL_DIR` override semantic.** When set, the env var now overrides BOTH defaults and writes to a single target (preserving the legacy single-target test-fixture contract). Production installs that want to suppress one default should set `LLMO_SKILL_DIR` explicitly to the target they want; CI fixtures continue to use the var unchanged. Verified by manual smoke-test against a fake HOME.
+
+### Notes
+
+- No code changes outside `scripts/postinstall.js`, `skill/SKILL.md`, and the metadata bump in `package.json`. Tier evaluation, signing, verification, registration, the X7 KT check, and the vendored schema are byte-identical to v0.1.13.
+- The dual-target write is unconditional: the postinstall does not probe for whether Codex or Copilot are installed before writing to `~/.agents/skills/llmo/`. The cost is trivial (a directory and ~10 small files), and writing unconditionally future-proofs the install against the developer adding a second agent later without re-running `npm install`.
+- The `~/.agents/skills/` path is the convention documented by OpenAI Codex (`https://developers.openai.com/codex/skills`) and recognized by GitHub Copilot's customize-cloud-agent flow (`https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills`). If either ecosystem moves its skill directory in a future release, the postinstall will need an update.
+
 ## [0.1.13] - 2026-05-12
 
 Implementer parity with llmo.org's [LIP-5](https://llmo.org/spec/lips/lip-0005/) release (Final, accepted under editor authorship privilege during the pre-announcement Goldilocks period). The CLI's vendored schema is refreshed to include the new required `category` discriminator on `disavowal.disavowed[]` entries, and the tier evaluator now binds rule S6 against the closed two-value enum (`self_statement` or `impersonation_defense`). Closes the §5.2 S6 enforcement gap deferred since v0.1.5.

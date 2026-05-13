@@ -1,7 +1,7 @@
 {
   "name": "llmo",
-  "version": "0.1.13",
-  "description": "Reference CLI for the LLMO protocol. Sign and verify llmo.json documents per the v0.1 specification at https://llmo.org/spec/v0.1. Bundles the /llmo Claude Code skill for guided publishing.",
+  "version": "0.1.14",
+  "description": "Reference CLI for the LLMO protocol. Sign and verify llmo.json documents per the v0.1 specification at https://llmo.org/spec/v0.1. Bundles the /llmo skill for guided publishing in Claude Code, OpenAI Codex, and GitHub Copilot.",
   "type": "module",
   "bin": {
     "llmo": "./dist/cli.js"
