@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-05-13
+
+Ships the eleven-phase `/llmo` skill: the wizard now offers to wire `openllmo/llmo-action@v0.1` in the publisher's GitHub repo as its final step, so future edits to `llmo.json` are auto-re-signed on push without the publisher ever pasting YAML or managing paths. No CLI behavior changes; only the bundled skill updates.
+
+### Added
+
+- **`skill/phases/11-auto-resign.md`** — new phase. After phase 10 (validate live), the wizard asks whether the publisher pushes their site's content to a GitHub repo. If yes, it captures the doc-path and kid from earlier phases, writes `.github/workflows/llmo.yml` to the publisher's repo (using `openllmo/llmo-action@v0.1`), sets the `LLMO_PRIVATE_KEY` secret via `gh secret set` (falling back to the browser flow if `gh` is unavailable), commits, pushes, and verifies the workflow registered. If no, the phase is skipped with the manual-re-sign fallback documented in the closing report. GitHub-only in v0.1; GitLab/CodeBerg/Bitbucket cross-platform support deferred to v0.2 of the action repo.
+- **`scripts/vendor.sh`** — phase loop now enumerates `11-auto-resign` in addition to the original ten phases. Re-running `bash scripts/vendor.sh` pulls the new phase file from the configured `LLMO_SKILL_REF`.
+
+### Changed
+
+- **`skill/SKILL.md`** — workflow list updated from ten phases to eleven. The Phase 11 entry references the new phase file and summarizes the GitHub-only / GitHub-Copilot-included scope.
+- **`skill/.vendored-from`** — re-pinned to llmo.org commit `a15ed84420da46f548b2f97658bd8e0ded217067` (merged via openllmo/llmo.org#156 minutes before this release).
+
+### Notes
+
+- The deploy page at `https://llmo.org/deploy/` collapsed to two real steps in the same llmo.org PR. The wizard absorbs what used to be a "paste YAML and add a secret" Step 3, so publishers never see paths or YAML during onboarding.
+- No tier-evaluation, signing, verification, registration, X7-check, or schema changes. 105/105 tests pass unchanged from v0.1.14.
+
 ## [0.1.14] - 2026-05-13
 
 Extends the bundled `/llmo` skill to **OpenAI Codex** and **GitHub Copilot** in addition to Claude Code. A single `npm install -g llmo` now installs the publisher wizard into every supported agent's per-user skill directory. The publisher's developer experience collapses to three steps: install the npm package, open whichever agent they have, type `/llmo`.

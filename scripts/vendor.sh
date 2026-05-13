@@ -91,7 +91,7 @@ for f in SKILL.md README.md; do
   curl -fsS "$SKILL_UPSTREAM/${f}" -o "$TMP/skill-${f}"
   diff_and_replace "skill/${f}" "$TMP/skill-${f}"
 done
-for phase in 01-greet 02-interview 03-derive 04-review 05-verify-contacts 06-dns-corroboration 07-keygen 08-sign 09-deploy 10-validate; do
+for phase in 01-greet 02-interview 03-derive 04-review 05-verify-contacts 06-dns-corroboration 07-keygen 08-sign 09-deploy 10-validate 11-auto-resign; do
   curl -fsS "$SKILL_UPSTREAM/phases/${phase}.md" -o "$TMP/phase-${phase}.md"
   diff_and_replace "skill/phases/${phase}.md" "$TMP/phase-${phase}.md"
 done
